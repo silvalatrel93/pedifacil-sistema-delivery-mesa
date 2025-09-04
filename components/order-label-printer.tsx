@@ -185,6 +185,10 @@ export default function OrderLabelPrinter({ order, onPrintComplete, autoPrint = 
       if (item.needsSpoon === true) {
         estimatedHeight += 5
       }
+      // Reservar espaço quando explicitamente nao precisa de colher
+      if (item.needsSpoon === false) {
+        estimatedHeight += 5
+      }
       
       // Observações
       if (item.notes && item.notes.trim() !== "") {
@@ -762,6 +766,12 @@ export default function OrderLabelPrinter({ order, onPrintComplete, autoPrint = 
           yPos += 5
           doc.setFont("courier", "normal")
         }
+        else if (item.needsSpoon === false) {
+          doc.setFont("courier", "bold")
+          doc.text("Nao precisa de colher", margin + 3, yPos)
+          yPos += 5
+          doc.setFont("courier", "normal")
+        }
 
         // Adicionar observações do cliente - Responsivo
         if (item.notes && item.notes.trim() !== "") {
@@ -1068,7 +1078,7 @@ export default function OrderLabelPrinter({ order, onPrintComplete, autoPrint = 
                   </div>
                 ) : null}
 
-                {/* Indicar se precisa de colher - só exibe se a opção estiver ativada */}
+                {/* Indicar se precisa de colher - exibir Sim/Não quando definido */}
                 {item.needsSpoon === true && (
                   <div className="spoon-info">
                     Precisa de colher: {item.spoonQuantity && item.spoonQuantity > 1 ? 
@@ -1076,6 +1086,9 @@ export default function OrderLabelPrinter({ order, onPrintComplete, autoPrint = 
                       'Sim (1 colher)'
                     }
                   </div>
+                )}
+                {item.needsSpoon === false && (
+                  <div className="spoon-info">Nao precisa de colher</div>
                 )}
 
                 {/* Observações do cliente */}

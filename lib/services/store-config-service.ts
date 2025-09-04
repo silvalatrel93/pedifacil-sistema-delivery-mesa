@@ -1,7 +1,25 @@
 import { createSupabaseClient, testSupabaseConnection, withRetry } from "@/lib/supabase-client"
+import { createClient } from '@supabase/supabase-js'
 import type { StoreConfig, OperatingHours, SpecialDate, SupabaseStoreConfig } from "../types"
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { DEFAULT_STORE_ID } from "../constants"
+
+// Função para criar cliente administrativo do Supabase
+function createAdminSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const serviceRoleKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''
+  
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Variáveis de ambiente do Supabase não configuradas para admin')
+  }
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
 
 // Configuração padrão básica para usar como fallback (sem dados específicos)
 const DEFAULT_STORE_CONFIG: StoreConfig = {
@@ -276,7 +294,7 @@ export const StoreConfigService = {
     
     try {
       console.log("Iniciando salvamento das configurações da loja:", config)
-      const supabase = createSupabaseClient()
+      const supabase = createAdminSupabaseClient()
 
       // Validar e padronizar os dados de entrada
       const validatedConfig: StoreConfig = {

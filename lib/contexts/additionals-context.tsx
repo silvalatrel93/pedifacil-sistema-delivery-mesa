@@ -49,6 +49,7 @@ type AdditionalsContextType = {
   resetAdditionalsBySize: () => void
   setMaxAdditionalsPerSize: (limit: number) => void
   updateSizeLimits: (sizes: ProductSize[]) => void // Novo método para atualizar limites por tamanho
+  bulkSelectAdditionals: (items: { additional: Additional; quantity?: number }[]) => void // Seleciona em massa (ignora limites)
 }
 
 // Valor padrão do contexto
@@ -81,7 +82,8 @@ const defaultContext: AdditionalsContextType = {
   setIsDataLoaded: () => { },
   resetAdditionalsBySize: () => { },
   setMaxAdditionalsPerSize: () => { },
-  updateSizeLimits: () => { }
+  updateSizeLimits: () => { },
+  bulkSelectAdditionals: () => { }
 }
 
 // Criação do contexto
@@ -249,6 +251,24 @@ export function AdditionalsProvider({
     })
   }
 
+  // Seleciona vários adicionais de uma vez para o tamanho atual, ignorando limites
+  const bulkSelectAdditionals = (items: { additional: Additional; quantity?: number }[]) => {
+    if (!items || items.length === 0) return
+    setAdditionalsBySize(prev => {
+      const newState = { ...prev }
+      const current = { ...(newState[selectedSize] || {}) }
+      for (const { additional, quantity } of items) {
+        if (!additional || typeof additional.id !== 'number') continue
+        current[additional.id] = {
+          additional,
+          quantity: Math.max(1, quantity ?? 1)
+        }
+      }
+      newState[selectedSize] = current
+      return newState
+    })
+  }
+
   const updateSizeLimits = (sizes: ProductSize[]) => {
     setSizeLimits(sizes)
 
@@ -291,7 +311,8 @@ export function AdditionalsProvider({
     setIsDataLoaded,
     resetAdditionalsBySize,
     setMaxAdditionalsPerSize,
-    updateSizeLimits
+    updateSizeLimits,
+    bulkSelectAdditionals
   }
 
   return (

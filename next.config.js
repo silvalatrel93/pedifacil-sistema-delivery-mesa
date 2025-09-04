@@ -12,7 +12,7 @@ const nextConfig = {
     ],
   },
   // Configuração para evitar problemas de prerendering
-  output: 'standalone'
+  // output: 'standalone' // Comentado para resolver problemas de compatibilidade
 }
 
 module.exports = nextConfig

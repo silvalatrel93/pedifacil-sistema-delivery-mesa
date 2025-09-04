@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Configurar cliente Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl) {
   console.error('❌ Erro: NEXT_PUBLIC_SUPABASE_URL não encontrada no .env.local');
@@ -19,7 +19,7 @@ if (!supabaseUrl) {
 }
 
 if (!supabaseKey) {
-  console.error('❌ Erro: NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY não encontrada no .env.local');
+  console.error('❌ Erro: SUPABASE_SERVICE_ROLE_KEY não encontrada no .env.local');
   console.log('\n📋 SOLUÇÃO MANUAL:');
   console.log('1. Acesse o Supabase Dashboard: https://app.supabase.com');
   console.log('2. Vá em SQL Editor');

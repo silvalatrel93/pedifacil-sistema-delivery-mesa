@@ -4,12 +4,13 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Trash2, Plus, Minus } from "lucide-react"
+import { ArrowLeft, Trash2, Plus, Minus, Edit } from "lucide-react"
 import { useCart, CartProvider } from "@/lib/cart-context"
 import { formatCurrency } from "@/lib/utils"
 import { getStoreConfig, type StoreConfig } from "@/lib/services/store-config-service"
 import { getProductById } from "@/lib/services/product-service"
-import type { Additional } from "@/lib/types"
+import type { Additional, Product } from "@/lib/types"
+import ProductCard from "@/components/product-card"
 
 // Função para detectar contexto de mesa
 function isTableContext(): boolean {
@@ -34,7 +35,7 @@ function ItemRow({ name, value, className }: { name: string; value: string; clas
 
 // Componente interno que usa o hook useCart
 function CartPageContent() {
-  const { cart, removeFromCart, updateQuantity, updateNotes, isLoading } = useCart()
+  const { cart, removeFromCart, updateQuantity, updateNotes, isLoading, tableInfo, isTableOrder } = useCart()
   const router = useRouter()
   const [storeConfig, setStoreConfig] = useState<StoreConfig | null>(null)
   const [deliveryFee, setDeliveryFee] = useState(5.0)
@@ -42,10 +43,23 @@ function CartPageContent() {
   const [minimumPicoleOrder, setMinimumPicoleOrder] = useState(20.0)
   const [moreninhaDeliveryFee, setMoreninhaDeliveryFee] = useState(5.0)
   const [minimumMoreninhaOrder, setMinimumMoreninhaOrder] = useState(17.0)
-  const [isUpdating, setIsUpdating] = useState<Record<number, boolean>>({})
-  const [productCategories, setProductCategories] = useState<Record<number, string>>({})
-  const [expandedNotes, setExpandedNotes] = useState<Record<number, boolean>>({})
-  const [notesValues, setNotesValues] = useState<Record<number, string>>({})
+  const [isUpdating, setIsUpdating] = useState<Record<string, boolean>>({})
+  const [productCategories, setProductCategories] = useState<Record<string, string>>({})
+  const [expandedNotes, setExpandedNotes] = useState<Record<string, boolean>>({})
+  const [notesValues, setNotesValues] = useState<Record<string, string>>({})
+  // Estado para edição inline (abrir modal do produto sem navegação)
+  
+  // URL de retorno estável para evitar hydration mismatch
+  const [backUrl, setBackUrl] = useState<string>("/")
+  useEffect(() => {
+    if (isTableOrder && tableInfo) {
+      setBackUrl(`/mesa/${tableInfo.number}`)
+    } else {
+      setBackUrl("/")
+    }
+  }, [isTableOrder, tableInfo])
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
 
   // Calcular subtotal e total
   const subtotal = cart.reduce((sum, item) => {
@@ -181,7 +195,7 @@ function CartPageContent() {
   // Carregar categorias dos produtos no carrinho
   useEffect(() => {
     const loadProductCategories = async () => {
-      const categories: Record<number, string> = {}
+      const categories: Record<string, string> = {}
 
       // Processar apenas produtos que não têm categoria definida
       const productsToLoad = cart.filter(item => !item.categoryName && item.productId)
@@ -212,14 +226,14 @@ function CartPageContent() {
 
   // Sincronizar as notas do carrinho com o estado local
   useEffect(() => {
-    const newNotesValues: Record<number, string> = {}
+    const newNotesValues: Record<string, string> = {}
     cart.forEach(item => {
       newNotesValues[item.id] = item.notes || ""
     })
     setNotesValues(newNotesValues)
   }, [cart])
 
-  const handleQuantityChange = async (id: number, newQuantity: number) => {
+  const handleQuantityChange = async (id: string, newQuantity: number) => {
     if (newQuantity < 1) return
 
     // Marcar este item como atualizando
@@ -233,24 +247,42 @@ function CartPageContent() {
     }
   }
 
-  const handleRemoveItem = async (id: number) => {
+  const handleRemoveItem = async (id: string) => {
+    if (!id || id.trim() === '') {
+      console.error("Tentativa de remover item com ID inválido (vazio)")
+      return
+    }
     await removeFromCart(id)
   }
 
-  const handleToggleNotes = (id: number) => {
+  const handleToggleNotes = (id: string) => {
     setExpandedNotes(prev => ({ ...prev, [id]: !prev[id] }))
   }
 
-  const handleNotesChange = (id: number, value: string) => {
+  const handleNotesChange = (id: string, value: string) => {
     setNotesValues(prev => ({ ...prev, [id]: value }))
   }
 
-  const handleSaveNotes = async (id: number) => {
+  const handleSaveNotes = async (id: string) => {
     try {
       await updateNotes(id, notesValues[id] || "")
       setExpandedNotes(prev => ({ ...prev, [id]: false }))
     } catch (error) {
       console.error("Erro ao salvar observações:", error)
+    }
+  }
+
+  // Abrir modal de edição inline (sem trocar de rota)
+  const handleOpenEditInline = async (productId?: number | null, itemId?: string) => {
+    if (!productId) return
+    try {
+      const product = await getProductById(productId)
+      if (product) {
+        setEditingProduct(product)
+        setEditingItemId(itemId || null)
+      }
+    } catch (e) {
+      console.error('Falha ao carregar produto para edição inline:', e)
     }
   }
 
@@ -265,7 +297,7 @@ function CartPageContent() {
           }}
           data-component-name="CartPageContent">
           <div className="container mx-auto flex items-center">
-            <Link href="/" className="mr-4">
+            <Link href={backUrl} className="mr-4">
               <ArrowLeft size={24} />
             </Link>
             <h1 className="text-xl font-bold">Carrinho</h1>
@@ -289,7 +321,7 @@ function CartPageContent() {
           }}
           data-component-name="CartPageContent">
           <div className="container mx-auto flex items-center">
-            <Link href="/" className="mr-4">
+            <Link href={backUrl} className="mr-4">
               <ArrowLeft size={24} />
             </Link>
             <h1 className="text-xl font-bold">Carrinho</h1>
@@ -299,7 +331,7 @@ function CartPageContent() {
         <div className="flex-1 flex flex-col items-center justify-center p-4">
           <h2 className="text-xl font-semibold text-gray-700 mb-2">Seu carrinho está vazio</h2>
           <p className="text-gray-500 mb-6 text-center">Adicione alguns produtos antes de finalizar o pedido</p>
-          <Link href="/">
+          <Link href={backUrl}>
             <button 
               className="text-white px-6 py-2 rounded-full transition-all duration-200"
               style={{
@@ -334,7 +366,7 @@ function CartPageContent() {
         data-component-name="CartPageContent">
         <div className="container mx-auto flex items-center justify-between">
           <div className="flex items-center">
-            <Link href="/" className="mr-4">
+            <Link href={backUrl} className="mr-4">
               <ArrowLeft size={24} />
             </Link>
             <h1 className="text-xl font-bold">Carrinho</h1>
@@ -404,6 +436,36 @@ function CartPageContent() {
 
                             <div className="flex items-center gap-2 flex-shrink-0">
                               <span className="text-base sm:text-lg md:text-xl font-bold text-green-600 whitespace-nowrap" data-component-name="CartPageContent">{formatCurrency(item.price)}</span>
+
+                              {/* Botão de editar pedido (abrir modal inline, sem navegação) */}
+                              <button
+                                onClick={() => handleOpenEditInline(item.productId, item.id)}
+                                className="
+                                  group relative overflow-hidden flex items-center justify-center
+                                  bg-white border p-1 rounded-full shadow-sm
+                                  transition-all duration-300 hover:shadow-md hover:bg-gray-50
+                                  active:scale-95 focus:outline-none focus:ring-2 focus:ring-opacity-50
+                                  touch-manipulation w-7 h-7
+                                "
+                                style={{
+                                  borderColor: `${storeConfig?.storeColor || '#8B5CF6'}40`,
+                                  color: storeConfig?.storeColor || '#8B5CF6'
+                                }}
+                                onMouseEnter={(e) => {
+                                  const color = storeConfig?.storeColor || '#8B5CF6';
+                                  (e.target as HTMLElement).style.backgroundColor = `${color}10`;
+                                  (e.target as HTMLElement).style.borderColor = `${color}60`;
+                                }}
+                                onMouseLeave={(e) => {
+                                  const color = storeConfig?.storeColor || '#8B5CF6';
+                                  (e.target as HTMLElement).style.backgroundColor = 'white';
+                                  (e.target as HTMLElement).style.borderColor = `${color}40`;
+                                }}
+                                aria-label="Editar pedido"
+                                title="Editar pedido"
+                              >
+                                <Edit size={12} />
+                              </button>
 
                               {/* Botões de controle para MILK-SHAKE'S */}
                               {(() => {
@@ -520,7 +582,7 @@ function CartPageContent() {
                           </div>
                         )}
 
-                        {/* Exibir informação de colher - apenas quando necessário */}
+                        {/* Exibir informação de colher quando o cliente pediu colher */}
                         {item.needsSpoon === true && (
                           <div className="ml-2 sm:ml-4 mt-2">
                             <div className="bg-green-50 border-green-400 border-l-4 p-2 rounded-r-md">
@@ -533,6 +595,22 @@ function CartPageContent() {
                                         `Sim (${item.spoonQuantity} colheres)` :
                                         'Sim (1 colher)'
                                     }
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Exibir informação de colher quando o cliente NÃO quer colher (destacar em vermelho) */}
+                        {item.needsSpoon === false && (
+                          <div className="ml-2 sm:ml-4 mt-2">
+                            <div className="bg-red-50 border-red-300 border-l-4 p-2 rounded-r-md">
+                              <div className="flex items-start">
+                                <span className="inline-block w-2.5 h-2.5 bg-gradient-to-r from-red-400 to-red-600 rounded-full mr-1.5 mt-0.5 flex-shrink-0"></span>
+                                <div className="text-xs">
+                                  <span className="font-semibold text-red-700">
+                                    Não precisa de colher
                                   </span>
                                 </div>
                               </div>
@@ -778,53 +856,22 @@ function CartPageContent() {
         </div>
 
         <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-4 sm:space-y-0 mt-6 mb-8 sm:mb-6">
-          {(() => {
-            // Determinar URL de redirecionamento baseado no contexto
-            const getBackUrl = () => {
-              if (isTableContext()) {
-                // Se estamos no contexto de mesa, pegar o número da mesa
-                const mesaAtual = localStorage.getItem('mesa_atual')
-                if (mesaAtual) {
-                  try {
-                    const mesaData = JSON.parse(mesaAtual)
-                    return `/mesa/${mesaData.number}`
-                  } catch {
-                    // Se falhar ao parsear, tentar extrair da URL atual
-                    const currentPath = window.location.pathname
-                    if (currentPath.startsWith('/mesa/')) {
-                      const mesaNumber = currentPath.split('/mesa/')[1]?.split('/')[0]
-                      return `/mesa/${mesaNumber}`
-                    }
-                  }
-                }
-                // Fallback: tentar extrair da URL atual
-                const currentPath = window.location.pathname
-                if (currentPath.startsWith('/mesa/')) {
-                  const mesaNumber = currentPath.split('/mesa/')[1]?.split('/')[0]
-                  return `/mesa/${mesaNumber}`
-                }
-              }
-              // Contexto de delivery - voltar para página inicial
-              return '/'
-            }
-
-            return (
-              <Link href={getBackUrl()} className="sm:flex-1 order-2 sm:order-1">
-                <button
-                  className="
-                    w-full relative overflow-hidden group
-                    border-2 transition-all duration-300 ease-in-out
-                    py-4 sm:py-3 px-4 rounded-xl sm:rounded-lg 
-                    font-semibold text-sm sm:text-base
-                    shadow-sm hover:shadow-md
-                    active:scale-[0.98]
-                    focus:outline-none focus:ring-2 focus:ring-opacity-50
-                    touch-manipulation"
-                  style={{
-                     borderColor: storeConfig?.storeColor || '#8B5CF6',
-                     color: storeConfig?.storeColor || '#8B5CF6'
-                   }}
-                  onMouseEnter={(e) => {
+          <Link href={backUrl} className="sm:flex-1 order-2 sm:order-1">
+            <button
+              className="
+                w-full relative overflow-hidden group
+                border-2 transition-all duration-300 ease-in-out
+                py-4 sm:py-3 px-4 rounded-xl sm:rounded-lg 
+                font-semibold text-sm sm:text-base
+                shadow-sm hover:shadow-md
+                active:scale-[0.98]
+                focus:outline-none focus:ring-2 focus:ring-opacity-50
+                touch-manipulation"
+              style={{
+                 borderColor: storeConfig?.storeColor || '#8B5CF6',
+                 color: storeConfig?.storeColor || '#8B5CF6'
+               }}
+              onMouseEnter={(e) => {
               const color = storeConfig?.storeColor || '#8B5CF6';
               (e.target as HTMLElement).style.backgroundColor = `${color}10`;
               (e.target as HTMLElement).style.boxShadow = `0 0 0 2px ${color}40`;
@@ -833,16 +880,14 @@ function CartPageContent() {
               (e.target as HTMLElement).style.backgroundColor = 'transparent';
               (e.target as HTMLElement).style.boxShadow = 'none';
             }}
-                >
-                  <span className="relative z-10 flex items-center justify-center">
-                    <ArrowLeft size={18} className="mr-2 transition-transform duration-300 group-hover:-translate-x-1" />
-                    Continuar Comprando
-                  </span>
-                  <span className="absolute inset-0 bg-gradient-to-r from-purple-50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
-                </button>
-              </Link>
-            )
-          })()}
+            >
+              <span className="relative z-10 flex items-center justify-center">
+                <ArrowLeft size={18} className="mr-2 transition-transform duration-300 group-hover:-translate-x-1" />
+                Continuar Comprando
+              </span>
+              <span className="absolute inset-0 bg-gradient-to-r from-purple-50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+            </button>
+          </Link>
           <Link href="/checkout" className="sm:flex-1 order-1 sm:order-2">
             <button
               className="
@@ -881,6 +926,17 @@ function CartPageContent() {
           </Link>
         </div>
       </div>
+
+      {/* Modal de edição de produto inline (sem navegação) */}
+      {editingProduct && (
+        <ProductCard
+          product={editingProduct}
+          storeColor={storeConfig?.storeColor || '#8B5CF6'}
+          forceOpen={true}
+          editItemIdOverride={editingItemId}
+          onModalClose={() => { setEditingProduct(null); setEditingItemId(null) }}
+        />
+      )}
     </div>
   )
 }

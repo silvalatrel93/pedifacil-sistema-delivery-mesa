@@ -29,6 +29,14 @@ const nextConfig = {
         protocol: 'https',
         hostname: '*.vercel.app',
       },
+      {
+        protocol: 'https',
+        hostname: 'via.placeholder.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'example.com',
+      },
     ],
   },
 }

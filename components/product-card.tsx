@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { X, Check, Minus, Plus, CheckCircle, ShoppingCart, Loader2 } from "lucide-react"
 import { useCart } from "@/lib/cart-context"
 import { formatCurrency } from "@/lib/utils"
@@ -27,20 +28,24 @@ interface ProductCardProps {
   product: Product
   priority?: boolean
   storeColor?: string
+  forceOpen?: boolean
+  editItemIdOverride?: string | null
+  onModalClose?: () => void
 }
 
-export default function ProductCard({ product, priority = false, storeColor = "#8B5CF6" }: ProductCardProps) {
+export default function ProductCard({ product, priority = false, storeColor = "#8B5CF6", forceOpen = false, editItemIdOverride = null, onModalClose }: ProductCardProps) {
   return (
     <AdditionalsProvider
+      initialSize={product.sizes.length > 0 ? product.sizes[0].size : ""}
       maxAdditionalsLimit={999} // Não usar limite geral, apenas limites por tamanho
       productSizes={product.sizes}
     >
-      <ProductCardContent product={product} priority={priority} storeColor={storeColor} />
+      <ProductCardContent product={product} priority={priority} storeColor={storeColor} forceOpen={forceOpen} editItemIdOverride={editItemIdOverride} onModalClose={onModalClose} />
     </AdditionalsProvider>
   )
 }
 
-function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" }: ProductCardProps) {
+function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6", forceOpen = false, editItemIdOverride = null, onModalClose }: ProductCardProps) {
   // Estado local do componente
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false)
@@ -63,7 +68,11 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
   const [currentCupStep, setCurrentCupStep] = useState<"first" | "second">("first")
 
   // Acesso ao contexto do carrinho
-  const { addToCart } = useCart()
+  const { cart, addToCart, removeFromCart } = useCart()
+  const searchParams = useSearchParams()
+  const editItemIdFromUrl = searchParams?.get('item') || ''
+  const editItemId = (editItemIdOverride ?? editItemIdFromUrl) || ''
+  const isEditing = Boolean(editItemId)
 
   // Acesso ao contexto de adicionais
   const {
@@ -82,6 +91,7 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
     resetAdditionalsBySize,
     loadAdditionalsData,
     isAdditionalSelected,
+    bulkSelectAdditionals,
     maxAdditionalsPerSize,
     FREE_ADDITIONALS_LIMIT,
     SIZES_WITH_FREE_ADDITIONALS
@@ -161,6 +171,75 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
     fetchStoreConfig()
   }, [])
 
+  // Abrir modal programaticamente quando forceOpen estiver ativo
+  useEffect(() => {
+    if (forceOpen) {
+      setIsModalOpen(true)
+    }
+  }, [forceOpen, product?.id])
+
+  // Hidratar o modal com os dados do item do carrinho quando estiver em modo edição
+  const [hasHydrated, setHasHydrated] = useState(false)
+  useEffect(() => {
+    if (!isEditing || !editItemId || hasHydrated) return
+    const currentItem = cart.find(ci => ci.id === editItemId)
+    if (!currentItem) return
+    if (currentItem.productId !== product.id) return
+
+    // Garantir que o tamanho do contexto seja o do item antes de hidratar adicionais
+    const targetSize = currentItem.size || ""
+    if (targetSize && selectedSize !== targetSize) {
+      setSelectedSize(targetSize)
+      return // aguardar próximo ciclo com o tamanho correto
+    }
+
+    // Colher
+    if (product.needsSpoon) {
+      setNeedsSpoon(currentItem.needsSpoon === undefined ? null : !!currentItem.needsSpoon)
+      if (currentItem.needsSpoon) {
+        setSpoonQuantity(Math.max(1, currentItem.spoonQuantity || 1))
+      }
+    }
+
+    // Quantidade (aplica somente para categorias com seletor de quantidade)
+    if (isPicolé(product.categoryName) || isMoreninha(product.categoryName)) {
+      setQuantity(Math.max(1, currentItem.quantity || 1))
+    } else {
+      setQuantity(1)
+    }
+
+    // Carregar dados de adicionais se necessário, depois selecionar os adicionais do item
+    const hydrateAdditionals = async () => {
+      try {
+        if (!isDataLoaded) {
+          await loadAdditionalsData()
+        }
+        const itemAdditionals = (currentItem.additionals || []) as any[]
+        if (Array.isArray(itemAdditionals) && itemAdditionals.length > 0) {
+          const items = itemAdditionals.map((a: any) => ({
+            additional: {
+              id: a.id,
+              name: a.name,
+              price: a.price,
+              categoryId: a.categoryId ?? 0,
+              categoryName: a.categoryName,
+              active: true,
+              image: a.image
+            } as any,
+            quantity: Math.max(1, a.quantity || 1)
+          }))
+          bulkSelectAdditionals(items)
+        }
+        setHasHydrated(true)
+      } catch (e) {
+        console.warn('Falha ao hidratar adicionais do item em edição:', e)
+      }
+    }
+
+    hydrateAdditionals()
+    // Dependências incluem selectedSize para aguardar sincronização do tamanho
+  }, [isEditing, editItemId, cart, product.id, selectedSize, isDataLoaded])
+
   // Função para incrementar a quantidade
   const incrementQuantity = () => {
     setQuantity(prev => {
@@ -186,6 +265,11 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
     try {
       // Simular um pequeno delay para mostrar o loading (opcional)
       await new Promise(resolve => setTimeout(resolve, 300))
+
+      // Se estivermos editando um item existente, remover antes para substituir
+      if (isEditing && editItemId) {
+        try { await removeFromCart(editItemId) } catch (e) { console.warn('Falha ao remover item antigo para edição:', e) }
+      }
 
       // Lógica especial para produtos combo (primeiro pago, segundo grátis)
       if (isCombo2Copos) {
@@ -266,6 +350,7 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
 
           // Fechar o modal
           setIsModalOpen(false)
+          onModalClose && onModalClose()
         }
       } else {
         // Lógica normal para outros produtos
@@ -297,6 +382,10 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
 
         addToCart(cartItem)
         resetAdditionalsBySize()
+
+        // Fechar modal após salvar (fluxo normal)
+        setIsModalOpen(false)
+        onModalClose && onModalClose()
       }
 
       // Mostrar feedback visual
@@ -383,17 +472,17 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
     // Texto especial para produtos combo (primeiro pago, segundo grátis)
     if (isCombo2Copos) {
       if (currentCupStep === "first") {
-        return `Adicionar ao Carrinho • ${formatCurrency(totalPrice)}`
+        return `${isEditing ? 'Salvar' : 'Adicionar'} • ${formatCurrency(totalPrice)}`
       } else if (currentCupStep === "second") {
-        return `Adicionar ao Carrinho • ${formatCurrency(additionalsTotalPrice)}`
+        return `${isEditing ? 'Salvar' : 'Adicionar'} • ${formatCurrency(additionalsTotalPrice)}`
       }
     }
 
     if (hasQuantitySelector && quantity > 1) {
-      return `Adicionar ${quantity} un. • ${formatCurrency(totalPrice)}`
+      return `${isEditing ? 'Salvar' : 'Adicionar'} ${quantity} un. • ${formatCurrency(totalPrice)}`
     }
 
-    return `Adicionar ao Carrinho • ${formatCurrency(totalPrice)}`
+    return `${isEditing ? 'Salvar alterações' : 'Adicionar ao Carrinho'} • ${formatCurrency(totalPrice)}`
   }
 
   // Função para verificar se o botão deve estar desabilitado
@@ -449,7 +538,7 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
               <div className="flex justify-between items-center border-b sticky top-0 bg-white z-10">
                 <h2 className="font-semibold text-lg sm:text-xl p-3 sm:p-4 break-words leading-tight">{product.name}</h2>
                 <button
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => { setIsModalOpen(false); onModalClose && onModalClose() }}
                   className="p-3 sm:p-4 flex-shrink-0 transition-colors duration-200"
                   style={{
                     color: storeColor
@@ -692,7 +781,7 @@ function ProductCardContent({ product, priority = false, storeColor = "#8B5CF6" 
                       `}>
                         <div className="flex items-center gap-2">
                           <CheckCircle size={18} className="animate-bounce" />
-                          <span className="text-sm sm:text-base font-semibold">Adicionado ao carrinho!</span>
+                          <span className="text-sm sm:text-base font-semibold">{isEditing ? 'Item atualizado!' : 'Adicionado ao carrinho!'}</span>
                         </div>
                       </div>
                     </div>

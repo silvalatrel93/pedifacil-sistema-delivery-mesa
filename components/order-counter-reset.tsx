@@ -55,6 +55,12 @@ export default function OrderCounterReset() {
       toast.success("Contador de pedidos zerado com sucesso!")
       toast.info("Todos os pedidos foram excluídos e o próximo pedido começará com o ID #1")
 
+      // Resetar contador de novos pedidos antes de recarregar
+      if (typeof window !== 'undefined') {
+        // Disparar evento customizado para resetar o contador
+        window.dispatchEvent(new CustomEvent('resetNewOrdersCount'));
+      }
+      
       // Recarregar a página após um breve intervalo
       setTimeout(() => {
         window.location.reload()

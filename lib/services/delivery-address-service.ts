@@ -49,32 +49,7 @@ export interface UpdateDeliveryAddressData extends Partial<CreateDeliveryAddress
  * @param address - Endereço para buscar
  * @returns Endereço encontrado ou null
  */
-export async function findDeliveryAddressByAddress(address: string): Promise<DeliveryAddress | null> {
-  try {
-    const supabase = createAdminSupabaseClient()
-    
-    const { data, error } = await supabase
-      .from('delivery_addresses')
-      .select('*')
-      .eq('address', address.trim())
-      .eq('is_active', true)
-      .single()
-
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // Nenhum resultado encontrado
-        return null
-      }
-      console.error('Erro ao buscar endereço:', error)
-      throw new Error('Erro ao buscar endereço de entrega')
-    }
-
-    return data
-  } catch (error) {
-    console.error('Erro inesperado ao buscar endereço:', error)
-    throw error
-  }
-}
+// Busca de endereço descontinuada
 
 /**
  * Busca um endereço de entrega por rua, número e bairro
@@ -83,31 +58,7 @@ export async function findDeliveryAddressByAddress(address: string): Promise<Del
  * @param neighborhood - Bairro
  * @returns Endereço encontrado ou null
  */
-export async function findDeliveryAddressByComponents(street: string, number: string, neighborhood: string): Promise<DeliveryAddress | null> {
-  try {
-    const supabase = createAdminSupabaseClient()
-    
-    const { data, error } = await supabase
-      .from('delivery_addresses')
-      .select('*')
-      .eq('address', street.trim())
-      .eq('number', number.trim())
-      .eq('neighborhood', neighborhood.trim())
-      .eq('is_active', true)
-      .limit(1)
-
-    if (error) {
-      console.error('Erro ao buscar endereço por componentes:', error)
-      throw new Error('Erro ao buscar endereço de entrega')
-    }
-
-    // Retorna o primeiro resultado ou null se não houver resultados
-    return data && data.length > 0 ? data[0] : null
-  } catch (error) {
-    console.error('Erro inesperado ao buscar endereço por componentes:', error)
-    throw error
-  }
-}
+// Busca de endereço descontinuada
 
 /**
  * Busca endereços de entrega por termo de pesquisa (endereço, bairro ou cidade)
@@ -115,30 +66,7 @@ export async function findDeliveryAddressByComponents(street: string, number: st
  * @param limit - Limite de resultados (padrão: 10)
  * @returns Lista de endereços encontrados
  */
-export async function searchDeliveryAddresses(searchTerm: string, limit: number = 10): Promise<DeliveryAddress[]> {
-  try {
-    const supabase = createAdminSupabaseClient()
-    const search = searchTerm.trim().toLowerCase()
-    
-    const { data, error } = await supabase
-      .from('delivery_addresses')
-      .select('*')
-      .eq('is_active', true)
-      .or(`address.ilike.%${search}%,neighborhood.ilike.%${search}%,city.ilike.%${search}%`)
-      .order('address')
-      .limit(limit)
-
-    if (error) {
-      console.error('Erro ao buscar endereços:', error)
-      throw new Error('Erro ao buscar endereços de entrega')
-    }
-
-    return data || []
-  } catch (error) {
-    console.error('Erro inesperado ao buscar endereços:', error)
-    throw error
-  }
-}
+// Busca de endereço descontinuada
 
 /**
  * Lista todos os endereços de entrega ativos
@@ -198,39 +126,23 @@ export async function getAllDeliveryAddresses(): Promise<DeliveryAddress[]> {
  */
 export async function createDeliveryAddress(addressData: CreateDeliveryAddressData): Promise<DeliveryAddress> {
   try {
-    const supabase = createAdminSupabaseClient()
-    
-    const { data, error } = await supabase
-      .from('delivery_addresses')
-      .insert([
-        {
-          address: addressData.address.trim(),
-          number: addressData.number?.trim() || null,
-          neighborhood: addressData.neighborhood?.trim() || null,
-          city: addressData.city.trim(),
-          delivery_fee: addressData.delivery_fee,
-          is_active: addressData.is_active ?? true,
-          notes: addressData.notes?.trim() || null
-        }
-      ])
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Erro ao criar endereço:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint,
-        addressData
-      })
-      if (error.code === '23505') {
+    // Rota segura no servidor para evitar uso da service role no cliente
+    const res = await fetch('/api/delivery-addresses/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(addressData)
+    })
+    const json = await res.json().catch(() => null)
+    if (!res.ok || !json?.success) {
+      const errMsg = json?.error || 'Erro ao criar endereço de entrega'
+      // Mapeia conflito de duplicidade
+      if (res.status === 409 || /existe/i.test(errMsg)) {
         throw new Error('Este endereço já existe')
       }
-      throw new Error(`Erro ao criar endereço de entrega: ${error.message || 'Erro desconhecido'}`)
+      console.error('Erro ao criar endereço:', json)
+      throw new Error(errMsg)
     }
-
-    return data
+    return json.data as DeliveryAddress
   } catch (error) {
     console.error('Erro inesperado ao criar endereço:', error)
     throw error
@@ -346,9 +258,6 @@ export async function toggleDeliveryAddressStatus(id: number, isActive: boolean)
 
 // Exportação como objeto para compatibilidade
 export const DeliveryAddressService = {
-  findDeliveryAddressByAddress,
-  findDeliveryAddressByComponents,
-  searchDeliveryAddresses,
   getActiveDeliveryAddresses,
   getAllDeliveryAddresses,
   createDeliveryAddress,

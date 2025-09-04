@@ -76,6 +76,8 @@ export default function MesasAdminPage() {
     try {
       setIsLoading(true)
       const tablesData = await TableService.getAllTables()
+      console.log('📊 Dados das mesas carregados:', tablesData)
+      console.log('📊 Mesa 2 específica:', tablesData.find(t => t.number === 2))
       setTables(tablesData)
     } catch (error) {
       console.error("Erro ao carregar mesas:", error)
@@ -210,17 +212,26 @@ export default function MesasAdminPage() {
 
   const handleToggleActive = async (table: Table) => {
     try {
+      console.log(`🔄 Tentando ${!table.active ? 'ativar' : 'desativar'} mesa ${table.number}`)
+      
       const result = await TableService.updateTable(table.id, {
         active: !table.active,
       })
 
+      console.log('📋 Resultado da atualização:', result)
+      console.log('📋 Dados da mesa atualizada:', result.data)
+
       if (result.error) {
+        console.error('❌ Erro na atualização:', result.error)
         alert(`Erro ao ${!table.active ? 'ativar' : 'desativar'} mesa: ${result.error.message}`)
         return
       }
 
+      console.log('✅ Mesa atualizada com sucesso')
+      console.log('🔄 Recarregando lista de mesas...')
       await loadTables()
       await loadStats()
+      console.log('🔄 Lista recarregada')
 
       // Feedback visual sutil para ativação/desativação
       // (sem alert para não incomodar muito o usuário)

@@ -1,7 +1,26 @@
 import { createSupabaseClient } from "../supabase-client"
-import type { Order, OrderStatus, OrderType } from "../types"
+import { createClient } from '@supabase/supabase-js'
+import type { Order, OrderStatus, OrderType, Address, OrderItem } from "../types"
+import type { Database } from "../database.types"
 import { DEFAULT_STORE_ID } from "../constants"
 import { DeliveryAddressService } from "./delivery-address-service"
+
+// Função para criar cliente administrativo do Supabase
+function createAdminSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const serviceRoleKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''
+  
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Variáveis de ambiente do Supabase não configuradas para admin')
+  }
+  
+  return createClient<Database>(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
 
 // Função utilitária para fazer o parsing correto dos items
 const parseItems = (items: any): any[] => {
@@ -36,8 +55,8 @@ export const OrderService = {
         id: Number(order.id),
         customerName: String(order.customer_name),
         customerPhone: String(order.customer_phone),
-        address: order.address as any,
-        items: typeof order.items === 'string' ? JSON.parse(order.items) : (Array.isArray(order.items) ? order.items : []),
+        address: order.address as Address,
+        items: typeof order.items === 'string' ? JSON.parse(order.items) : (Array.isArray(order.items) ? order.items : []) as OrderItem[],
         subtotal: Number(order.subtotal),
         deliveryFee: Number(order.delivery_fee),
         total: Number(order.total),
@@ -116,24 +135,27 @@ export const OrderService = {
         return null
       }
 
+      // Tipagem explícita para evitar erro de TypeScript
+      const orderData = data as any
+
       return {
-        id: Number(data.id),
-        customerName: String(data.customer_name),
-        customerPhone: String(data.customer_phone),
-        address: data.address as any,
-        items: data.items as any,
-        subtotal: Number(data.subtotal),
-        deliveryFee: Number(data.delivery_fee),
-        total: Number(data.total),
-        paymentMethod: String(data.payment_method),
-        paymentChange: data.payment_change ? String(data.payment_change) : undefined,
-        status: data.status as OrderStatus,
-        date: new Date(String(data.date)),
-        printed: Boolean(data.printed),
-        notified: Boolean(data.notified),
-        orderType: (data.order_type as OrderType) || 'delivery',
-        tableId: data.table_id ? Number(data.table_id) : undefined,
-        tableName: data.table_name ? String(data.table_name) : undefined,
+        id: Number(orderData.id),
+        customerName: String(orderData.customer_name),
+        customerPhone: String(orderData.customer_phone),
+        address: orderData.address as Address,
+        items: orderData.items as OrderItem[],
+        subtotal: Number(orderData.subtotal),
+        deliveryFee: Number(orderData.delivery_fee),
+        total: Number(orderData.total),
+        paymentMethod: String(orderData.payment_method),
+        paymentChange: orderData.payment_change ? String(orderData.payment_change) : undefined,
+        status: orderData.status as OrderStatus,
+        date: new Date(String(orderData.date)),
+        printed: Boolean(orderData.printed),
+        notified: Boolean(orderData.notified),
+        orderType: (orderData.order_type as OrderType) || 'delivery',
+        tableId: orderData.table_id ? Number(orderData.table_id) : undefined,
+        tableName: orderData.table_name ? String(orderData.table_name) : undefined,
       }
     } catch (error) {
       console.error(`Erro ao buscar pedido ${id}:`, error)
@@ -146,35 +168,24 @@ export const OrderService = {
     try {
       const supabase = createSupabaseClient()
 
-      // Se for um pedido de entrega, verificar e criar endereço automaticamente
+      // Se for um pedido de entrega, criar endereço automaticamente (best-effort, sem busca)
       if (order.orderType === 'delivery' && order.address) {
         try {
-          // Verificar se o endereço já existe usando rua, número e bairro
-          const existingAddress = await DeliveryAddressService.findDeliveryAddressByComponents(
-            order.address.street || '',
-            order.address.number || '',
-            order.address.neighborhood || ''
-          )
-          
-          // Se não existir, criar novo endereço
-          if (!existingAddress) {
-            const newAddressData = {
-              address: order.address.street || '',
-              number: order.address.number || '',
-              neighborhood: order.address.neighborhood || '',
-              city: order.address.city || 'Maringá',
-              delivery_fee: order.deliveryFee || 0,
-              is_active: true,
-              notes: ''
-            }
-            
-            await DeliveryAddressService.createDeliveryAddress(newAddressData)
-            const addressKey = `${order.address.street}, ${order.address.number || ''}, ${order.address.neighborhood}, ${order.address.city}`.trim()
-            console.log('Novo endereço de entrega criado automaticamente:', addressKey)
+          const newAddressData = {
+            address: order.address.street || '',
+            number: order.address.number || '',
+            neighborhood: order.address.neighborhood || '',
+            city: order.address.city || 'Maringá',
+            delivery_fee: order.deliveryFee || 0,
+            is_active: true,
+            notes: ''
           }
+          await DeliveryAddressService.createDeliveryAddress(newAddressData)
+          const addressKey = `${order.address.street}, ${order.address.number || ''}, ${order.address.neighborhood}, ${order.address.city}`.trim()
+          console.log('Endereço de entrega criado automaticamente (best-effort):', addressKey)
         } catch (addressError) {
-          // Log do erro mas não interrompe a criação do pedido
-          console.warn('Erro ao criar endereço automaticamente:', addressError)
+          // Se já existir (409) ou qualquer erro, não bloquear criação do pedido
+          console.warn('Aviso ao criar endereço automaticamente (ignorado):', addressError)
         }
       }
 
@@ -198,9 +209,9 @@ export const OrderService = {
         table_name: order.tableName || null, // Incluir nome da mesa se for pedido de mesa
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("orders")
-        .insert(orderData)
+        .insert([orderData])
         .select()
         .single()
 
@@ -222,28 +233,38 @@ export const OrderService = {
       }
 
       const result: Order = {
-        id: Number(data.id),
-        customerName: String(data.customer_name),
-        customerPhone: String(data.customer_phone),
-        address: data.address as any,
-        items: data.items as any,
-        subtotal: Number(data.subtotal),
-        deliveryFee: Number(data.delivery_fee),
-        total: Number(data.total),
-        paymentMethod: String(data.payment_method),
-        paymentChange: data.payment_change ? String(data.payment_change) : undefined,
-        status: data.status as OrderStatus,
-        date: new Date(String(data.date)),
-        printed: Boolean(data.printed),
-        notified: Boolean(data.notified),
-        orderType: (data.order_type as OrderType) || 'delivery',
-        tableId: data.table_id ? Number(data.table_id) : undefined,
-        tableName: data.table_name ? String(data.table_name) : undefined,
+        id: Number((data as any).id),
+        customerName: String((data as any).customer_name),
+        customerPhone: String((data as any).customer_phone),
+        address: (data as any).address as Address,
+        items: (data as any).items as OrderItem[],
+        subtotal: Number((data as any).subtotal),
+        deliveryFee: Number((data as any).delivery_fee),
+        total: Number((data as any).total),
+        paymentMethod: String((data as any).payment_method),
+        paymentChange: (data as any).payment_change ? String((data as any).payment_change) : undefined,
+        status: (data as any).status as OrderStatus,
+        date: new Date(String((data as any).date)),
+        printed: Boolean((data as any).printed),
+        notified: Boolean((data as any).notified),
+        orderType: ((data as any)?.order_type as OrderType) || 'delivery',
+        tableId: (data as any)?.table_id ? Number((data as any)?.table_id) : undefined,
+        tableName: (data as any)?.table_name ? String((data as any)?.table_name) : undefined,
       }
 
       return { data: result, error: null }
     } catch (error) {
-      console.error("Erro ao criar pedido:", error)
+      console.error("Erro ao criar pedido:", {
+        error,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        orderData: {
+          customer_name: order.customerName,
+          payment_method: order.paymentMethod,
+          total: order.total,
+          store_id: DEFAULT_STORE_ID
+        }
+      })
       return { data: null, error: error instanceof Error ? error : new Error(String(error)) }
     }
   },
@@ -251,18 +272,18 @@ export const OrderService = {
   // Atualizar status do pedido
   async updateOrderStatus(id: number | string, status: OrderStatus): Promise<boolean> {
     try {
-      const supabase = createSupabaseClient()
-      const { error } = await supabase
-        .from("orders")
-        .update({ status })
-        .eq("id", id)
-
-      if (error) {
-        console.error(`Erro ao atualizar status do pedido ${id}:`, error)
+      const res = await fetch('/api/orders/update-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status })
+      })
+      if (!res.ok) {
+        const details = await res.json().catch(() => ({}))
+        console.error(`Erro ao atualizar status do pedido ${id}:`, details)
         return false
       }
-
-      return true
+      const data = await res.json()
+      return Boolean(data?.success)
     } catch (error) {
       console.error(`Erro ao atualizar status do pedido ${id}:`, error)
       return false
@@ -272,18 +293,18 @@ export const OrderService = {
   // Marcar pedido como impresso
   async markOrderAsPrinted(id: number): Promise<boolean> {
     try {
-      const supabase = createSupabaseClient()
-      const { error } = await supabase
-        .from("orders")
-        .update({ printed: true })
-        .eq("id", id)
-
-      if (error) {
-        console.error(`Erro ao marcar pedido ${id} como impresso:`, error)
+      const res = await fetch('/api/orders/mark-printed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      })
+      if (!res.ok) {
+        const details = await res.json().catch(() => ({}))
+        console.error(`Erro ao marcar pedido ${id} como impresso:`, details)
         return false
       }
-
-      return true
+      const data = await res.json()
+      return Boolean(data?.success)
     } catch (error) {
       console.error(`Erro ao marcar pedido ${id} como impresso:`, error)
       return false
@@ -293,18 +314,18 @@ export const OrderService = {
   // Marcar pedido como notificado
   async markOrderAsNotified(id: number): Promise<boolean> {
     try {
-      const supabase = createSupabaseClient()
-      const { error } = await supabase
-        .from("orders")
-        .update({ notified: true })
-        .eq("id", id)
-
-      if (error) {
-        console.error(`Erro ao marcar pedido ${id} como notificado:`, error)
+      const res = await fetch('/api/orders/mark-notified', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      })
+      if (!res.ok) {
+        const details = await res.json().catch(() => ({}))
+        console.error(`Erro ao marcar pedido ${id} como notificado:`, details)
         return false
       }
-
-      return true
+      const data = await res.json()
+      return Boolean(data?.success)
     } catch (error) {
       console.error(`Erro ao marcar pedido ${id} como notificado:`, error)
       return false
@@ -316,31 +337,19 @@ export const OrderService = {
     try {
       const supabase = createSupabaseClient();
 
-      // 1. Excluir itens do pedido da tabela 'order_items'
-      // Esta tabela pode não existir em todas as versões, então tratamos o erro.
-      const { error: deleteItemsError } = await supabase
-        .from('order_items')
-        .delete()
-        .eq('order_id', id);
-
-      if (deleteItemsError && deleteItemsError.code !== '42P01') { // 42P01: undefined_table
-        console.error(`Erro ao excluir itens do pedido ${id}:`, deleteItemsError);
-        // Continuar mesmo se a tabela não existir ou se houver outro erro,
-        // pois o objetivo principal é excluir o pedido.
-      }
-
-      // 2. Excluir o pedido da tabela 'orders'
+      // Excluir o pedido da tabela 'orders'
+      // Os itens são armazenados como JSONB na coluna 'items', então são excluídos automaticamente
       const { error: deleteOrderError } = await supabase
         .from('orders')
         .delete()
         .eq('id', id);
 
       if (deleteOrderError) {
-        console.error(`Erro ao excluir o pedido ${id} da tabela 'orders':`, deleteOrderError);
+        console.error(`Erro ao excluir o pedido ${id}:`, deleteOrderError);
         return false;
       }
 
-      console.log(`Pedido ${id} e seus itens foram excluídos com sucesso.`);
+      console.log(`Pedido ${id} foi excluído com sucesso.`);
       return true;
     } catch (error) {
       console.error(`Erro inesperado ao excluir o pedido ${id}:`, error);
@@ -388,9 +397,10 @@ export const OrderService = {
         .gte("date", monthStart.toISOString())
 
       // Pedidos por status
-      const { data: statusData } = await supabase
+      const statusResult = await supabase
         .from("orders")
         .select("status")
+      const statusData = statusResult.data as { status: string }[] | null
 
       const byStatus: Record<OrderStatus, number> = {
         new: 0,
@@ -559,7 +569,7 @@ export const OrderService = {
       }))
     } catch (error) {
       console.error(`Erro ao buscar pedidos de delivery:`, error)
-      return []
+      throw error
     }
   },
 
@@ -657,11 +667,7 @@ export const OrderService = {
         }
       )
 
-      // Configurar handler de erro
-      channel.on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (error: any) => {
-        console.warn('Erro no canal real-time de pedidos:', error)
-        // Não propagar erro para evitar erros intrusivos
-      })
+      // Handler de erro removido - eventos normais não devem ser tratados como erros
 
       // Subscrever ao canal
       channel.subscribe((status, err) => {

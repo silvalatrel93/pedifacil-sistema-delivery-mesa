@@ -15,9 +15,9 @@ interface TableInfo {
 interface CartContextType {
   cart: CartItem[]
   addToCart: (item: Omit<CartItem, "id">) => Promise<void>
-  updateQuantity: (id: number, quantity: number, updatedFields?: Partial<CartItem>) => Promise<void>
-  updateNotes: (id: number, notes: string) => Promise<void>
-  removeFromCart: (id: number) => Promise<void>
+  updateQuantity: (id: string, quantity: number, updatedFields?: Partial<CartItem>) => Promise<void>
+  updateNotes: (id: string, notes: string) => Promise<void>
+  removeFromCart: (id: string) => Promise<void>
   clearCart: () => Promise<void>
   isLoading: boolean
   itemCount: number
@@ -31,8 +31,31 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [itemCount, setItemCount] = useState(0)
-  const [tableInfo, setTableInfo] = useState<TableInfo | null>(null)
-  const [isTableOrder, setIsTableOrder] = useState(false)
+  const [tableInfo, setTableInfo] = useState<TableInfo | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const mesaAtual = localStorage.getItem('mesa_atual')
+        if (mesaAtual) {
+          return JSON.parse(mesaAtual) as TableInfo
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+    return null
+  })
+  const [isTableOrder, setIsTableOrder] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const currentPath = window.location.pathname
+      const mesaAtual = localStorage.getItem('mesa_atual')
+      return !!mesaAtual && (
+        currentPath.startsWith('/mesa/') ||
+        currentPath === '/checkout' ||
+        currentPath === '/carrinho'
+      )
+    }
+    return false
+  })
 
   // Carregar itens do carrinho
   const loadCart = useCallback(async () => {
@@ -52,58 +75,57 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // Verificar se estamos em uma mesa
+  // Verificar se estamos em uma mesa (função estável)
   const checkTableContext = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      const currentPath = window.location.pathname
-      const mesaAtual = localStorage.getItem('mesa_atual')
+    if (typeof window === 'undefined') return
+    const currentPath = window.location.pathname
+    const mesaAtual = localStorage.getItem('mesa_atual')
 
-      // console.log('CartContext - Verificando contexto:', { currentPath, mesaAtual: !!mesaAtual })
-
-      // Verifica se temos dados de mesa no localStorage
+    try {
       if (mesaAtual) {
-        try {
-          const mesa = JSON.parse(mesaAtual) as TableInfo
+        const mesa = JSON.parse(mesaAtual) as TableInfo
+        const isMesaPath = (
+          currentPath.startsWith('/mesa/') ||
+          currentPath === '/checkout' ||
+          currentPath === '/carrinho'
+        )
 
-          // Se estivermos na rota de mesa OU em rotas relacionadas ao pedido de mesa (checkout, carrinho)
-          if (currentPath.startsWith('/mesa/') ||
-            currentPath === '/checkout' ||
-            currentPath === '/carrinho') {
-            // Só logar se a mesa for diferente da atual para evitar spam
-            if (!tableInfo || tableInfo.id !== mesa.id) {
-              console.log('CartContext - Configurando como mesa:', mesa)
-            }
-            setTableInfo(mesa)
-            setIsTableOrder(true)
-          } else {
-            // Só limpa se estivermos em uma rota completamente diferente (home, admin, etc)
-            console.log('CartContext - Limpando dados de mesa - navegação para rota não relacionada')
+        if (isMesaPath) {
+          // Atualiza somente se necessário
+          setTableInfo((prev) => {
+            const equal = !!prev && prev.id === mesa.id && prev.number === mesa.number && prev.name === mesa.name
+            return equal ? prev : mesa
+          })
+          setIsTableOrder(() => true)
+        } else {
+          // Rota não relacionada: limpar somente se necessário
+          if (localStorage.getItem('mesa_atual')) {
             localStorage.removeItem('mesa_atual')
-            setTableInfo(null)
-            setIsTableOrder(false)
           }
-        } catch (error) {
-          console.error('Erro ao ler informações da mesa:', error)
-          localStorage.removeItem('mesa_atual')
-          setTableInfo(null)
-          setIsTableOrder(false)
+          setTableInfo((prev) => (prev === null ? prev : null))
+          setIsTableOrder((prev) => (prev ? false : prev))
         }
       } else {
-        // Sem dados de mesa - sempre delivery
-        if (currentPath.startsWith('/mesa/')) {
-          console.log('CartContext - Na rota de mesa mas sem dados no localStorage, aguardando...')
-          // Se estivermos na rota de mesa mas ainda não tiver dados, aguardar
-        } else {
-          setTableInfo(null)
-          setIsTableOrder(false)
+        // Sem dados de mesa
+        if (!currentPath.startsWith('/mesa/')) {
+          setTableInfo((prev) => (prev === null ? prev : null))
+          setIsTableOrder((prev) => (prev ? false : prev))
         }
+        // Se estiver em /mesa/ sem mesa_atual, não força atualização para evitar loop; aguardamos evento.
       }
+    } catch (error) {
+      console.error('Erro ao ler informações da mesa:', error)
+      if (localStorage.getItem('mesa_atual')) {
+        localStorage.removeItem('mesa_atual')
+      }
+      setTableInfo((prev) => (prev === null ? prev : null))
+      setIsTableOrder((prev) => (prev ? false : prev))
     }
-  }, [tableInfo])
+  }, [])
 
   useEffect(() => {
-    // Aguardar um pouco antes da primeira verificação para dar tempo da página carregar
-    const initialTimeout = setTimeout(checkTableContext, 500)
+    // Verificar imediatamente no primeiro render para evitar piscar o fluxo de delivery
+    checkTableContext()
 
     // Listener para mudanças de rota
     const handleRouteChange = () => {
@@ -126,12 +148,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const intervalId = setInterval(checkTableContext, 5000)
 
     return () => {
-      clearTimeout(initialTimeout)
       window.removeEventListener('popstate', handleRouteChange)
       window.removeEventListener('mesa-configurada', handleMesaConfigurada)
       clearInterval(intervalId)
     }
-  }, [checkTableContext])
+  }, [])
 
   // Carregar carrinho ao iniciar
   useEffect(() => {
@@ -142,7 +163,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const handleAddToCart = useCallback(
     async (item: Omit<CartItem, "id">) => {
       try {
-        await addToCart(item)
+        const result = await addToCart(item)
+        if (!result) {
+          throw new Error("Falha ao adicionar item ao carrinho")
+        }
         await loadCart()
       } catch (error) {
         console.error("Erro ao adicionar item ao carrinho:", {
@@ -150,6 +174,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           errorMessage: error instanceof Error ? error.message : String(error),
           item
         })
+        throw error // Re-lançar o erro para que seja capturado pelo componente que chama
       }
     },
     [loadCart],
@@ -157,7 +182,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   // Atualizar quantidade e outros campos de um item (com atualização otimista da UI)
   const handleUpdateQuantity = useCallback(
-    async (id: number, quantity: number, updatedFields?: Partial<CartItem>) => {
+    async (id: string, quantity: number, updatedFields?: Partial<CartItem>) => {
       try {
         // Atualização otimista da UI
         setCart((prevCart) => {
@@ -197,7 +222,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   // Remover item do carrinho (com atualização otimista da UI)
   const handleRemoveFromCart = useCallback(
-    async (id: number) => {
+    async (id: string) => {
+      if (!id || id.trim() === '') {
+        console.error("Tentativa de remover item com ID inválido (vazio) no contexto do carrinho.")
+        return
+      }
       try {
         // Atualização otimista da UI
         setCart((prevCart) => {
@@ -227,7 +256,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   // Atualizar observações de um item
   const handleUpdateNotes = useCallback(
-    async (id: number, notes: string) => {
+    async (id: string, notes: string) => {
       try {
         // Atualização otimista da UI
         setCart((prevCart) => {

@@ -2,6 +2,51 @@ import { createSupabaseClient } from "../supabase-client"
 import { createClient } from '@supabase/supabase-js'
 import { Product } from "../types"
 
+// Tipagem básica da linha retornada pelo Supabase para a tabela products
+type ProductRow = {
+  id: number
+  name: string
+  description?: string | null
+  image?: string | null
+  sizes?: any[] | null
+  table_sizes?: any[] | null
+  category_id: number
+  categories?: { name?: string | null } | null
+  active: boolean
+  allowed_additionals?: any[] | null
+  additionals_limit?: number | null
+  needs_spoon?: boolean | null
+  hidden_from_table?: boolean | null
+  hidden_from_delivery?: boolean | null
+}
+
+// Função utilitária para mapear ProductRow -> Product (domínio da aplicação)
+function mapRowToProduct(row: ProductRow): Product {
+  return {
+    id: Number(row.id),
+    name: String(row.name),
+    description: String(row.description || ""),
+    image: String(row.image || ""),
+    // price não existe na tabela; manter como undefined no domínio
+    price: undefined,
+    sizes: Array.isArray(row.sizes ?? undefined) ? (row.sizes as any[]) : [],
+    tableSizes: row.table_sizes && Array.isArray(row.table_sizes) ? (row.table_sizes as any[]) : undefined,
+    categoryId: Number(row.category_id),
+    categoryName: row.categories && typeof row.categories === 'object' && row.categories !== null && 'name' in row.categories
+      ? String((row.categories as any).name || "")
+      : "",
+    active: Boolean(row.active),
+    // Campos que não existem na tabela permanecem mapeados com valores padrão
+    hidden: false,
+    hiddenFromTable: Boolean(row.hidden_from_table ?? false),
+    hiddenFromDelivery: Boolean(row.hidden_from_delivery ?? false),
+    allowedAdditionals: Array.isArray(row.allowed_additionals ?? undefined) ? (row.allowed_additionals as any[]) : [],
+    hasAdditionals: Array.isArray(row.allowed_additionals ?? undefined) && (row.allowed_additionals as any[]).length > 0,
+    additionalsLimit: typeof row.additionals_limit === 'number' ? row.additionals_limit : undefined,
+    needsSpoon: Boolean(row.needs_spoon),
+  }
+}
+
 // Cliente Supabase com service_role para operações administrativas
 function createAdminSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -32,16 +77,16 @@ export const ProductService = {
           name,
           description,
           image,
-          price,
           sizes,
+          table_sizes,
           category_id,
           categories!products_category_id_fkey(name),
           active,
           allowed_additionals,
           additionals_limit,
           needs_spoon,
-          hidden_from_delivery,
-          hidden_from_table
+          hidden_from_table,
+          hidden_from_delivery
         `)
         .order("id")
 
@@ -56,27 +101,8 @@ export const ProductService = {
         return []
       }
 
-      return data.map((item: any) => ({
-        id: Number(item.id),
-        name: String(item.name),
-        description: String(item.description || ""),
-        image: String(item.image || ""),
-        price: typeof item.price === 'number' ? item.price : undefined,
-        sizes: Array.isArray(item.sizes) ? item.sizes : [],
-        tableSizes: undefined, // Coluna não existe na tabela
-        categoryId: Number(item.category_id),
-        categoryName: item.categories && typeof item.categories === 'object' && item.categories !== null && 'name' in item.categories
-          ? String((item.categories as any).name)
-          : "",
-        active: Boolean(item.active),
-        hidden: false, // Coluna não existe na tabela
-        hiddenFromTable: Boolean(item.hidden_from_table),
-        hiddenFromDelivery: Boolean(item.hidden_from_delivery),
-        allowedAdditionals: Array.isArray(item.allowed_additionals) ? item.allowed_additionals : [],
-        hasAdditionals: Array.isArray(item.allowed_additionals) && item.allowed_additionals.length > 0,
-        additionalsLimit: typeof item.additionals_limit === 'number' ? item.additionals_limit : undefined,
-        needsSpoon: Boolean(item.needs_spoon),
-      }))
+      const rows = (data ?? []) as ProductRow[]
+      return rows.map(mapRowToProduct)
     } catch (error) {
       console.error("Erro ao buscar produtos:", error)
       return []
@@ -95,14 +121,16 @@ export const ProductService = {
           name,
           description,
           image,
-          price,
           sizes,
+          table_sizes,
           category_id,
           categories!products_category_id_fkey(name),
           active,
           allowed_additionals,
           additionals_limit,
-          needs_spoon
+          needs_spoon,
+          hidden_from_table,
+          hidden_from_delivery
         `)
         .eq("active", true)
         .order("id")
@@ -118,27 +146,9 @@ export const ProductService = {
         return []
       }
 
-      return data.map((item: any) => ({
-        id: Number(item.id),
-        name: String(item.name),
-        description: String(item.description || ""),
-        image: String(item.image || ""),
-        price: typeof item.price === 'number' ? item.price : (typeof item.price === 'string' ? parseFloat(item.price) : undefined),
-        sizes: Array.isArray(item.sizes) ? item.sizes : [],
-        tableSizes: undefined, // Coluna não existe na tabela
-        categoryId: Number(item.category_id),
-        categoryName: item.categories && typeof item.categories === 'object' && item.categories !== null && 'name' in item.categories
-          ? String((item.categories as any).name)
-          : "",
-        active: Boolean(item.active),
-        hidden: false, // Coluna não existe na tabela
-        hiddenFromTable: false, // Coluna não existe na tabela
-        hiddenFromDelivery: false, // Coluna não existe na tabela
-        allowedAdditionals: Array.isArray(item.allowed_additionals) ? item.allowed_additionals : [],
-        hasAdditionals: Array.isArray(item.allowed_additionals) && item.allowed_additionals.length > 0,
-        additionalsLimit: typeof item.additionals_limit === 'number' ? item.additionals_limit : undefined,
-        needsSpoon: Boolean(item.needs_spoon),
-      }))
+      const rows = (data ?? []) as ProductRow[]
+      // Como esta query não seleciona hidden_from_delivery, ele virá como undefined e será considerado false no mapper
+      return rows.map(mapRowToProduct)
     } catch (error) {
       console.error("Erro ao buscar produtos ativos:", error)
       return []
@@ -157,14 +167,15 @@ export const ProductService = {
           name,
           description,
           image,
-          price,
           sizes,
+          table_sizes,
           category_id,
           categories!products_category_id_fkey(name),
           active,
           allowed_additionals,
           additionals_limit,
-          needs_spoon
+          needs_spoon,
+          hidden_from_delivery
         `)
         .eq("active", true)
         .order("id")
@@ -180,27 +191,8 @@ export const ProductService = {
         return []
       }
 
-      return data.map((item: any) => ({
-        id: Number(item.id),
-        name: String(item.name),
-        description: String(item.description || ""),
-        image: String(item.image || ""),
-        price: typeof item.price === 'number' ? item.price : undefined,
-        sizes: Array.isArray(item.sizes) ? item.sizes : [],
-        tableSizes: undefined, // Coluna não existe na tabela
-        categoryId: Number(item.category_id),
-        categoryName: item.categories && typeof item.categories === 'object' && item.categories !== null && 'name' in item.categories
-          ? String((item.categories as any).name)
-          : "",
-        active: Boolean(item.active),
-        hidden: false, // Coluna não existe na tabela
-        hiddenFromTable: false, // Coluna não existe na tabela
-        hiddenFromDelivery: false, // Coluna não existe na tabela
-        allowedAdditionals: Array.isArray(item.allowed_additionals) ? item.allowed_additionals : [],
-        hasAdditionals: Array.isArray(item.allowed_additionals) && item.allowed_additionals.length > 0,
-        additionalsLimit: typeof item.additionals_limit === 'number' ? item.additionals_limit : undefined,
-        needsSpoon: Boolean(item.needs_spoon),
-      }))
+      const rows = (data ?? []) as ProductRow[]
+      return rows.map(mapRowToProduct)
     } catch (error) {
       console.error("Erro ao buscar produtos visíveis:", error)
       return []
@@ -219,14 +211,16 @@ export const ProductService = {
           name,
           description,
           image,
-          price,
           sizes,
+          table_sizes,
           category_id,
           categories!products_category_id_fkey(name),
           active,
           allowed_additionals,
           additionals_limit,
-          needs_spoon
+          needs_spoon,
+          hidden_from_table,
+          hidden_from_delivery
         `)
         .eq("category_id", categoryId)
         .eq("active", true)
@@ -241,27 +235,8 @@ export const ProductService = {
         return []
       }
 
-      return data.map((item: any) => ({
-        id: Number(item.id),
-        name: String(item.name),
-        description: String(item.description || ""),
-        image: String(item.image || ""),
-        price: typeof item.price === 'number' ? item.price : (typeof item.price === 'string' ? parseFloat(item.price) : undefined),
-        sizes: Array.isArray(item.sizes) ? item.sizes : [],
-        tableSizes: undefined,
-        categoryId: Number(item.category_id),
-        categoryName: item.categories && typeof item.categories === 'object' && item.categories !== null && 'name' in item.categories
-          ? String((item.categories as any).name)
-          : "",
-        active: Boolean(item.active),
-        hidden: false,
-        hiddenFromTable: false,
-        hiddenFromDelivery: false,
-        allowedAdditionals: Array.isArray(item.allowed_additionals) ? item.allowed_additionals : [],
-        hasAdditionals: Array.isArray(item.allowed_additionals) && item.allowed_additionals.length > 0,
-        additionalsLimit: typeof item.additionals_limit === 'number' ? item.additionals_limit : undefined,
-        needsSpoon: Boolean(item.needs_spoon),
-      }))
+      const rows = (data ?? []) as ProductRow[]
+      return rows.map(mapRowToProduct)
     } catch (error) {
       console.error(`Erro ao buscar produtos da categoria ${categoryId}:`, error)
       return []
@@ -280,8 +255,8 @@ export const ProductService = {
           name,
           description,
           image,
-          price,
           sizes,
+          table_sizes,
           category_id,
           categories!products_category_id_fkey(name),
           active,
@@ -303,27 +278,8 @@ export const ProductService = {
         return null
       }
 
-      return {
-        id: Number(data.id),
-        name: String(data.name),
-        description: String(data.description || ""),
-        image: String(data.image || ""),
-        price: typeof data.price === 'number' ? data.price : (typeof data.price === 'string' ? parseFloat(data.price) : undefined),
-        sizes: Array.isArray(data.sizes) ? data.sizes : [],
-        tableSizes: undefined, // Coluna não existe na tabela
-        categoryId: Number(data.category_id),
-        categoryName: data.categories && typeof data.categories === 'object' && data.categories !== null && 'name' in data.categories
-          ? String((data.categories as any).name)
-          : "",
-        active: Boolean(data.active),
-        hidden: false, // Coluna não existe na tabela
-        hiddenFromTable: false, // Coluna não existe na tabela
-        hiddenFromDelivery: false, // Coluna não existe na tabela
-        allowedAdditionals: Array.isArray(data.allowed_additionals) ? data.allowed_additionals : [],
-        hasAdditionals: Array.isArray(data.allowed_additionals) && data.allowed_additionals.length > 0,
-        additionalsLimit: typeof data.additionals_limit === 'number' ? data.additionals_limit : undefined,
-        needsSpoon: Boolean(data.needs_spoon),
-      }
+      const row = (data ?? null) as ProductRow | null
+      return row ? mapRowToProduct(row) : null
     } catch (error) {
       console.error(`Erro ao buscar produto ${id}:`, error)
       return null
@@ -345,6 +301,7 @@ export const ProductService = {
           description: product.description || "",
           image: product.image || "",
           sizes: product.sizes || [],
+          table_sizes: product.tableSizes || null,
           category_id: product.categoryId,
           active: Boolean(product.active),
           allowed_additionals: product.allowedAdditionals || [],
@@ -379,25 +336,8 @@ export const ProductService = {
           return { data: null, error: new Error(error.message || 'Erro desconhecido ao atualizar produto') }
         }
 
-        const result: Product = {
-          id: Number(data.id),
-          name: String(data.name),
-          description: String(data.description || ""),
-          image: String(data.image || ""),
-          sizes: Array.isArray(data.sizes) ? data.sizes : [],
-          tableSizes: undefined, // Coluna não existe na tabela
-          categoryId: Number(data.category_id),
-          active: Boolean(data.active),
-          hidden: false, // Coluna não existe na tabela
-          hiddenFromTable: false, // Coluna não existe na tabela
-          hiddenFromDelivery: false, // Coluna não existe na tabela
-          allowedAdditionals: Array.isArray(data.allowed_additionals) ? data.allowed_additionals : [],
-          hasAdditionals: Array.isArray(data.allowed_additionals) && data.allowed_additionals.length > 0,
-          additionalsLimit: typeof data.additionals_limit === 'number' ? data.additionals_limit : undefined,
-          needsSpoon: Boolean(data.needs_spoon),
-        }
-
-        return { data: result, error: null }
+        const row = data as ProductRow
+        return { data: mapRowToProduct(row), error: null }
       } else {
         // Preparar dados para criação com validação
         const insertData = {
@@ -405,6 +345,7 @@ export const ProductService = {
           description: product.description || "",
           image: product.image || "",
           sizes: product.sizes || [],
+          table_sizes: product.tableSizes || null,
           category_id: product.categoryId,
           active: Boolean(product.active !== undefined ? product.active : true),
           allowed_additionals: product.allowedAdditionals || [],
@@ -437,25 +378,8 @@ export const ProductService = {
           return { data: null, error: new Error(error.message || 'Erro desconhecido ao criar produto') }
         }
 
-        const result: Product = {
-          id: Number(data.id),
-          name: String(data.name),
-          description: String(data.description || ""),
-          image: String(data.image || ""),
-          sizes: Array.isArray(data.sizes) ? data.sizes : [],
-          tableSizes: undefined, // Coluna não existe na tabela
-          categoryId: Number(data.category_id),
-          active: Boolean(data.active),
-          hidden: false, // Coluna não existe na tabela
-          hiddenFromTable: false, // Coluna não existe na tabela
-          hiddenFromDelivery: false, // Coluna não existe na tabela
-          allowedAdditionals: Array.isArray(data.allowed_additionals) ? data.allowed_additionals : [],
-          hasAdditionals: Array.isArray(data.allowed_additionals) && data.allowed_additionals.length > 0,
-          additionalsLimit: typeof data.additionals_limit === 'number' ? data.additionals_limit : undefined,
-          needsSpoon: Boolean(data.needs_spoon),
-        }
-
-        return { data: result, error: null }
+        const row = data as ProductRow
+        return { data: mapRowToProduct(row), error: null }
       }
     } catch (error) {
       console.error("Erro ao salvar produto:", {
@@ -509,7 +433,7 @@ export const ProductService = {
       }
 
       // Inverter o valor de active
-      const newActiveValue = !currentProduct.active
+      const newActiveValue = !(currentProduct as { active: boolean }).active
 
       const adminSupabase = createAdminSupabaseClient()
       const { error } = await adminSupabase
@@ -649,26 +573,8 @@ export async function getVisibleProductsForDelivery(): Promise<Product[]> {
       return []
     }
 
-    return (data || []).map((item: any) => ({
-      id: Number(item.id),
-      name: String(item.name),
-      description: String(item.description || ""),
-      image: String(item.image || ""),
-      sizes: Array.isArray(item.sizes) ? item.sizes : [],
-      tableSizes: undefined, // Coluna não existe na tabela
-      categoryId: Number(item.category_id),
-      categoryName: item.categories && typeof item.categories === 'object' && item.categories !== null && 'name' in item.categories
-        ? String((item.categories as any).name)
-        : "",
-      active: Boolean(item.active),
-      hidden: false, // Coluna não existe na tabela
-      hiddenFromTable: false, // Não selecionada nesta query
-      hiddenFromDelivery: Boolean(item.hidden_from_delivery),
-      allowedAdditionals: Array.isArray(item.allowed_additionals) ? item.allowed_additionals : [],
-      hasAdditionals: Array.isArray(item.allowed_additionals) && item.allowed_additionals.length > 0,
-      additionalsLimit: typeof item.additionals_limit === 'number' ? item.additionals_limit : undefined,
-      needsSpoon: Boolean(item.needs_spoon),
-    }))
+    const rows = (data ?? []) as ProductRow[]
+    return rows.map(mapRowToProduct)
   } catch (error) {
     console.error("Erro ao buscar produtos visíveis no delivery:", error)
     return []
@@ -681,6 +587,8 @@ export async function getVisibleProductsForDelivery(): Promise<Product[]> {
 export async function getVisibleProductsForTable(): Promise<Product[]> {
   try {
     const supabase = createSupabaseClient()
+    console.log('🔍 Buscando produtos visíveis para mesa...')
+    
     const { data, error } = await supabase
       .from("products")
       .select(`
@@ -689,6 +597,7 @@ export async function getVisibleProductsForTable(): Promise<Product[]> {
           description,
           image,
           sizes,
+          table_sizes,
           category_id,
           categories!products_category_id_fkey(name),
           active,
@@ -701,31 +610,20 @@ export async function getVisibleProductsForTable(): Promise<Product[]> {
       .eq("hidden_from_table", false)
       .order("id")
 
+    console.log('📊 Produtos encontrados para mesa:', data?.length || 0)
+    if (data) {
+      data.forEach((product: any) => {
+        console.log(`📦 Produto: ${product.name} - active: ${product.active}, hidden_from_table: ${product.hidden_from_table}`)
+      })
+    }
+
     if (error) {
       console.error("Erro ao buscar produtos visíveis em mesa:", error)
       return []
     }
 
-    return (data || []).map((item: any) => ({
-      id: Number(item.id),
-      name: String(item.name),
-      description: String(item.description || ""),
-      image: String(item.image || ""),
-      sizes: Array.isArray(item.sizes) ? item.sizes : [],
-      tableSizes: undefined, // Coluna não existe na tabela
-      categoryId: Number(item.category_id),
-      categoryName: item.categories && typeof item.categories === 'object' && item.categories !== null && 'name' in item.categories
-        ? String((item.categories as any).name)
-        : "",
-      active: Boolean(item.active),
-      hidden: false, // Coluna não existe na tabela
-      hiddenFromTable: Boolean(item.hidden_from_table),
-      hiddenFromDelivery: Boolean(item.hidden_from_delivery),
-      allowedAdditionals: Array.isArray(item.allowed_additionals) ? item.allowed_additionals : [],
-      hasAdditionals: Array.isArray(item.allowed_additionals) && item.allowed_additionals.length > 0,
-      additionalsLimit: typeof item.additionals_limit === 'number' ? item.additionals_limit : undefined,
-      needsSpoon: Boolean(item.needs_spoon),
-    }))
+    const rows = (data ?? []) as ProductRow[]
+    return rows.map(mapRowToProduct)
   } catch (error) {
     console.error("Erro ao buscar produtos visíveis em mesa:", error)
     return []
@@ -752,7 +650,7 @@ export async function toggleDeliveryVisibility(productId: number): Promise<boole
     }
 
     // Alternar o estado (inverter hidden_from_delivery)
-    const newHiddenValue = !currentProduct.hidden_from_delivery
+    const newHiddenValue = !(currentProduct as { hidden_from_delivery: boolean }).hidden_from_delivery
 
     const adminSupabase = createAdminSupabaseClient()
     const { error } = await adminSupabase

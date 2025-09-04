@@ -1,5 +1,23 @@
 import { createSupabaseClient } from "../supabase-client"
+import { createClient } from '@supabase/supabase-js'
 import type { CarouselSlide } from "../types"
+
+// Função para criar cliente administrativo do Supabase
+function createAdminSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const serviceRoleKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''
+  
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Variáveis de ambiente do Supabase não configuradas para admin')
+  }
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
 
 export const CarouselService = {
   // Obter todos os slides
@@ -95,7 +113,7 @@ export const CarouselService = {
   // Salvar slide
   async saveSlide(slide: CarouselSlide): Promise<{ data: CarouselSlide | null; error: Error | null }> {
     try {
-      const supabase = createSupabaseClient()
+      const supabase = createAdminSupabaseClient()
 
       if (slide.id && slide.id > 0) {
         // Verificar se o slide existe antes de tentar atualizar
@@ -193,7 +211,7 @@ export const CarouselService = {
   // Excluir slide
   async deleteSlide(id: number): Promise<boolean> {
     try {
-      const supabase = createSupabaseClient()
+      const supabase = createAdminSupabaseClient()
       const { error } = await supabase
         .from("carousel_slides")
         .delete()
@@ -214,7 +232,7 @@ export const CarouselService = {
   // Reordenar slides
   async reorderSlides(slides: { id: number; order: number }[]): Promise<boolean> {
     try {
-      const supabase = createSupabaseClient()
+      const supabase = createAdminSupabaseClient()
 
       for (const slide of slides) {
         const { error } = await supabase

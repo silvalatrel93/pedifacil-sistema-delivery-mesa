@@ -137,25 +137,14 @@ export default function OrdersPage() {
       });
     }
 
-    // Se houver novos pedidos, marcá-los como notificados
+    // Se houver novos pedidos, apenas atualizar a lista (não marcar como notificados automaticamente)
     if (newOrders.length > 0) {
       try {
-        // Marcar cada pedido como notificado no banco de dados
-        await Promise.all(
-          newOrders.map(order =>
-            OrderService.markOrderAsNotified(order.id).catch(error => {
-              console.error(`Erro ao marcar pedido ${order.id} como notificado:`, error);
-              return false; // Continuar mesmo em caso de erro
-            })
-          )
-        );
-
-        // Atualizar os pedidos localmente para refletir a mudança
-        const updatedOrders = orders.map(order =>
-          newOrders.some(o => o.id === order.id)
-            ? { ...order, notified: true }
-            : order
-        );
+        // Não marcar automaticamente como notificados - deixar para o usuário decidir
+        // Os pedidos só serão marcados como notificados quando o usuário fechar a notificação
+        
+        // Manter os pedidos como estão (sem marcar como notificados)
+        const updatedOrders = orders;
 
         // Usar atualização de estado em lote
         React.startTransition(() => {
@@ -167,8 +156,9 @@ export default function OrdersPage() {
             startContinuousSound();
           }
 
-          // Atualizar contador de novos pedidos
-          setNewOrdersCount(prev => prev + newOrders.length);
+          // Atualizar contador com o total de pedidos não notificados
+          const totalUnnotifiedOrders = orders.filter(order => !order.notified && order.status === "new").length;
+          setNewOrdersCount(totalUnnotifiedOrders);
 
           // Mostrar notificação (permanecerá visível até ser fechada manualmente)
           setShowNewOrderNotification(true);
@@ -219,6 +209,14 @@ export default function OrdersPage() {
     let isFetching = false;
     let realtimeChannel: any = null;
 
+    // Listener para resetar contador quando histórico for limpo
+    const handleResetNewOrdersCount = () => {
+      setNewOrdersCount(0);
+      setShowNewOrderNotification(false);
+    };
+
+    window.addEventListener('resetNewOrdersCount', handleResetNewOrdersCount);
+
     // Função para carregar e processar pedidos
     const loadAndProcessOrders = async (silent = true) => {
       if (isFetching) return;
@@ -248,32 +246,70 @@ export default function OrdersPage() {
           console.log('📨 Mudança real-time detectada:', payload);
           if (!isMounted) return;
 
-          // Usar payload.eventType que é o campo correto para postgres_changes
-          switch (payload.eventType) {
+          // Usar payload.type que é o campo correto para postgres_changes
+          switch (payload.type) {
             case 'INSERT':
               console.log('🆕 Novo pedido recebido, adicionando à lista...');
-              setOrders(currentOrders => {
-                const newOrder = payload.new as Order;
-                // Evitar adicionar duplicados
-                if (currentOrders.some(o => o.id === newOrder.id)) {
-                  return currentOrders;
+              // Mapear os campos do banco para o formato TypeScript
+              const rawOrder = payload.new as any;
+              const newOrder: Order = {
+                ...rawOrder,
+                customerName: rawOrder.customer_name,
+                customerPhone: rawOrder.customer_phone,
+                orderType: rawOrder.order_type,
+                deliveryFee: parseFloat(rawOrder.delivery_fee || '0'),
+                subtotal: parseFloat(rawOrder.subtotal || '0'),
+                total: parseFloat(rawOrder.total || '0'),
+                date: new Date(rawOrder.date || rawOrder.created_at)
+              };
+
+              // Som e notificação visual (mesmo comportamento do processOrders)
+              if (isSoundEnabled) {
+                startContinuousSound();
+                setLastPlayedSoundForOrder(newOrder.id);
+              }
+              // Não incrementar contador aqui - será feito pelo processOrders quando detectar o pedido não notificado
+              setShowNewOrderNotification(true);
+
+              // Enviar confirmação via WhatsApp automaticamente se configurado
+              if (autoSendWhatsApp) {
+                // Evitar envios duplicados
+                if (!sentWhatsAppMessagesRef.current.has(newOrder.id)) {
+                  const whatsappUrl = WhatsAppService.prepareOrderConfirmation(newOrder);
+                  if (whatsappUrl && typeof window !== 'undefined') {
+                    window.open(whatsappUrl, '_blank');
+                  }
+                  sentWhatsAppMessagesRef.current.add(newOrder.id);
                 }
-                // Tocar som para novo pedido
-                if (isSoundEnabled) {
-                  startContinuousSound();
-                  setLastPlayedSoundForOrder(newOrder.id);
-                }
-                return [newOrder, ...currentOrders];
-              });
+              }
+
+              // Não marcar automaticamente como notificado - deixar para o usuário decidir
+              // Os pedidos só serão marcados como notificados quando o usuário clicar em "Concluído"
+
+              // Inserir no topo da lista
+              setOrders(currentOrders => [newOrder, ...currentOrders]);
               break;
 
             case 'UPDATE':
               console.log(`🔄 Pedido #${payload.new.id} atualizado, atualizando na lista...`);
-              setOrders(currentOrders =>
-                currentOrders.map(order =>
-                  order.id === payload.new.id ? { ...order, ...(payload.new as Order) } : order
-                )
-              );
+              setOrders(currentOrders => {
+                // Mapear os campos do banco para o formato TypeScript
+                const rawOrder = payload.new as any;
+                const updatedOrder: Partial<Order> = {
+                  ...rawOrder,
+                  customerName: rawOrder.customer_name,
+                  customerPhone: rawOrder.customer_phone,
+                  orderType: rawOrder.order_type,
+                  deliveryFee: parseFloat(rawOrder.delivery_fee || '0'),
+                  subtotal: parseFloat(rawOrder.subtotal || '0'),
+                  total: parseFloat(rawOrder.total || '0'),
+                  date: new Date(rawOrder.date || rawOrder.created_at)
+                };
+
+                return currentOrders.map(order =>
+                  order.id === payload.new.id ? { ...order, ...updatedOrder } : order
+                );
+              });
               break;
 
             case 'DELETE':
@@ -285,7 +321,7 @@ export default function OrdersPage() {
 
             default:
               // Apenas logar eventos não esperados, sem recarregar a lista inteira
-              console.log(`Evento não tratado ou desconhecido: ${payload.eventType}`);
+              console.log(`Evento não tratado ou desconhecido: ${payload.type}`);
               break;
           }
         },
@@ -298,15 +334,12 @@ export default function OrdersPage() {
     // Configurar subscrição real-time
     setupRealtimeSubscription();
 
-    // Polling de fallback desativado para priorizar a atualização granular por real-time
-    const pollingInterval = null; // Desativado temporariamente para teste
-    /*
+    // Polling de fallback reativado para garantir atualizações regulares
     const pollingInterval = setInterval(() => {
       if (isMounted) {
         void loadAndProcessOrders(true);
       }
-    }, 60000); // Aumentado para 60 segundos para ser um fallback menos agressivo
-    */
+    }, 10000); // 10 segundos para atualizações mais frequentes
 
     // Armazenar a referência do intervalo
     checkIntervalRef.current = pollingInterval;
@@ -331,8 +364,11 @@ export default function OrdersPage() {
         clearInterval(notificationTimeoutRef.current);
         notificationTimeoutRef.current = null;
       }
+
+      // Remover listener
+      window.removeEventListener('resetNewOrdersCount', handleResetNewOrdersCount);
     };
-  }, [fetchOrders, processOrders, isSoundEnabled]); // Dependências do efeito
+  }, [fetchOrders, processOrders, isSoundEnabled, autoSendWhatsApp]); // Dependências do efeito
 
   // Função para enviar manualmente mensagem de WhatsApp para um pedido
   const handleSendWhatsApp = React.useCallback(async (order: Order): Promise<void> => {
@@ -862,7 +898,34 @@ export default function OrdersPage() {
                   // Parar o som contínuo
                   stopContinuousSound();
 
-                  // Marcar como concluído e fechar notificação
+                  // Marcar pedidos não notificados como notificados
+                  try {
+                    const unnotifiedOrders = orders.filter(order => !order.notified && order.status === "new");
+                    
+                    if (unnotifiedOrders.length > 0) {
+                      // Marcar cada pedido como notificado no banco de dados
+                      await Promise.all(
+                        unnotifiedOrders.map(order =>
+                          OrderService.markOrderAsNotified(order.id).catch(error => {
+                            console.error(`Erro ao marcar pedido ${order.id} como notificado:`, error);
+                            return false;
+                          })
+                        )
+                      );
+                      
+                      // Atualizar os pedidos localmente
+                      const updatedOrders = orders.map(order =>
+                        unnotifiedOrders.some(o => o.id === order.id)
+                          ? { ...order, notified: true }
+                          : order
+                      );
+                      setOrders(updatedOrders);
+                    }
+                  } catch (error) {
+                    console.error('Erro ao marcar pedidos como notificados:', error);
+                  }
+
+                  // Fechar notificação
                   if (notificationTimeoutRef.current) {
                     clearInterval(notificationTimeoutRef.current);
                     notificationTimeoutRef.current = null;
@@ -870,9 +933,7 @@ export default function OrdersPage() {
                   setShowNewOrderNotification(false);
                   setNewOrdersCount(0);
 
-                  // Obter os novos pedidos e atualizar seus status para "completed"
-                  // Vamos atualizar TODOS os pedidos visíveis na tela para "completed"
-                  // Isso garante que o usuário veja a mudança imediatamente
+                  // Código original para atualizar status (se necessário)
                   try {
                     // Indicar que estamos atualizando o status
                     setUpdatingStatus(true);
@@ -1142,6 +1203,19 @@ export default function OrdersPage() {
                                         `Sim (${item.spoonQuantity} colheres)` :
                                         'Sim (1 colher)'
                                       }
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {item.needsSpoon === false && (
+                              <div className="mt-2 bg-red-50 border-red-400 border-l-4 p-2 rounded-r-md">
+                                <div className="flex items-start">
+                                  <span className="inline-block w-2.5 h-2.5 bg-gradient-to-r from-red-400 to-red-600 rounded-full mr-1.5 mt-0.5 flex-shrink-0"></span>
+                                  <div className="text-sm">
+                                    <span className="font-semibold text-red-800">
+                                      Não precisa de colher
                                     </span>
                                   </div>
                                 </div>

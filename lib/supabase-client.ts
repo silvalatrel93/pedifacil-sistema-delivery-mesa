@@ -1,7 +1,8 @@
 import { createClient } from "@supabase/supabase-js"
+import { Database } from "./database.types"
 
 // Singleton para o cliente Supabase
-let supabaseInstance: ReturnType<typeof createClient> | null = null
+let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null
 
 export function createSupabaseClient() {
   if (supabaseInstance) {
@@ -28,7 +29,7 @@ export function createSupabaseClient() {
   }
 
   try {
-    supabaseInstance = createClient(finalUrl, finalKey)
+    supabaseInstance = createClient<Database>(finalUrl, finalKey)
     return supabaseInstance
   } catch (error) {
     console.error('Erro ao criar cliente Supabase:', error)

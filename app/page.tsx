@@ -17,6 +17,7 @@ import type { Category } from "@/lib/services/category-service"
 import type { Product } from "@/lib/services/product-service"
 import type { Phrase } from "@/lib/services/phrase-service"
 import type { StoreConfig } from "@/lib/services/store-config-service"
+import ProductListSkeleton from "@/components/product-list-skeleton"
 
 export default function Home() {
   const [slides, setSlides] = useState<CarouselSlide[]>([])
@@ -116,9 +117,7 @@ export default function Home() {
         background: 'linear-gradient(to bottom, #f3e8ff, white)'
       }}>
         {loading ? (
-          <div className="flex justify-center p-12">
-            <div className="animate-spin h-8 w-8 border-4 border-purple-500 rounded-full border-t-transparent"></div>
-          </div>
+          <ProductListSkeleton />
         ) : error ? (
           <div className="p-4 bg-red-50 text-red-700 rounded-lg text-center">
             <p>{error}</p>

@@ -1,6 +1,18 @@
 import { NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { supabase } from '@/lib/services/supabase-client';
+import { createClient } from '@supabase/supabase-js';
+
+// Cliente Supabase com service_role para operações administrativas
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+);
 
 // Função para gerar hash de senha, movida para o lado do servidor
 function generatePasswordHash(password: string): string {
@@ -14,7 +26,7 @@ export async function POST(request: Request) {
     const { password, currentPassword } = await request.json();
 
     if (currentPassword !== undefined) { // Se currentPassword for passado, estamos atualizando
-        const { data } = await supabase
+        const { data } = await supabaseAdmin
             .from('admin_settings')
             .select('value')
             .eq('key', 'admin_password')
@@ -32,7 +44,7 @@ export async function POST(request: Request) {
 
     const hashedPassword = generatePasswordHash(password);
 
-    const { data: existingConfig, error: fetchError } = await supabase
+    const { data: existingConfig, error: fetchError } = await supabaseAdmin
       .from('admin_settings')
       .select('*')
       .eq('key', 'admin_password')
@@ -44,12 +56,12 @@ export async function POST(request: Request) {
 
     let result;
     if (existingConfig) {
-      result = await supabase
+      result = await supabaseAdmin
         .from('admin_settings')
         .update({ value: hashedPassword, updated_at: new Date().toISOString() })
         .eq('key', 'admin_password');
     } else {
-      result = await supabase
+      result = await supabaseAdmin
         .from('admin_settings')
         .insert([{ key: 'admin_password', value: hashedPassword }]);
     }
@@ -71,7 +83,7 @@ export async function GET(request: Request) {
         const password = searchParams.get('password');
 
         if (password) { // Verificar uma senha específica
-            const { data } = await supabase
+            const { data } = await supabaseAdmin
                 .from('admin_settings')
                 .select('value')
                 .eq('key', 'admin_password')
@@ -84,7 +96,7 @@ export async function GET(request: Request) {
             const isValid = generatePasswordHash(password) === data.value;
             return NextResponse.json({ isValid });
         } else { // Verificar se alguma senha existe
-            const { data, error } = await supabase
+            const { data, error } = await supabaseAdmin
                 .from('admin_settings')
                 .select('value')
                 .eq('key', 'admin_password')

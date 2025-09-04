@@ -14,9 +14,6 @@ import { getStoreStatus } from "@/lib/store-utils"
 import { OrderService } from "@/lib/services/order-service"
 import { getProductById } from "@/lib/services/product-service"
 import { generateSimplePixQRCode } from "@/lib/pix-utils"
-import { DeliveryAddressLookup } from "@/components/delivery-address-lookup"
-
-
 
 
 // Função para limpar a exibição do tamanho
@@ -157,7 +154,7 @@ function CheckoutPageContent() {
   const [storeConfig, setStoreConfig] = useState<StoreConfig | null>(null)
   const [storeStatus, setStoreStatus] = useState({ isOpen: true, statusText: "", statusClass: "" })
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [productCategories, setProductCategories] = useState<Record<number, string>>({})
+  const [productCategories, setProductCategories] = useState<Record<string, string>>({})
   const [selectedAddress, setSelectedAddress] = useState<any>(null)
 
 
@@ -193,7 +190,7 @@ function CheckoutPageContent() {
   // Carregar categorias dos produtos no carrinho
   useEffect(() => {
     const loadProductCategories = async () => {
-      const categories: Record<number, string> = {}
+      const categories: Record<string, string> = {}
 
       // Processar apenas produtos que não têm categoria definida
       const productsToLoad = cart.filter(item => !item.categoryName && item.productId)
@@ -206,7 +203,7 @@ function CheckoutPageContent() {
           if (item.productId) {
             const product = await getProductById(item.productId)
             if (product && product.categoryName) {
-              categories[item.id] = product.categoryName
+              categories[String(item.id)] = product.categoryName
             }
           }
         }
@@ -249,17 +246,17 @@ function CheckoutPageContent() {
 
   // Verificar se há picolés no carrinho
   const hasPicoles = cart.some(item =>
-    isPicolé(item.categoryName) || isPicolé(productCategories[item.id])
+    isPicolé(item.categoryName) || isPicolé(productCategories[String(item.id)])
   )
 
   // Verificar se TODOS os produtos no carrinho são da categoria PICOLE
   const hasOnlyPicoles = cart.length > 0 && cart.every(item =>
-    isPicolé(item.categoryName) || isPicolé(productCategories[item.id])
+    isPicolé(item.categoryName) || isPicolé(productCategories[String(item.id)])
   )
 
   // Verificar se TODOS os produtos no carrinho são da categoria MORENINHA
   const hasOnlyMoreninha = cart.length > 0 && cart.every(item =>
-    isMoreninha(item.categoryName) || isMoreninha(productCategories[item.id])
+    isMoreninha(item.categoryName) || isMoreninha(productCategories[String(item.id)])
   )
 
   // Calcular subtotal e total
@@ -412,7 +409,7 @@ function CheckoutPageContent() {
           state: "PR", // Estado padrão para Paraná
         },
         items: cart.map((item) => ({
-          productId: item.productId || item.id, // Usando productId se disponível, ou id como fallback
+          productId: Number(item.productId ?? item.id), // Garantir número para atender o tipo de OrderItem
           name: item.name,
           size: item.size, // Mantém o tamanho original com identificador para o banco de dados
           price: item.price,
@@ -470,8 +467,13 @@ function CheckoutPageContent() {
         }
       }, 5000)
     } catch (error) {
-      console.error("Erro ao finalizar pedido:", error)
-      alert("Ocorreu um erro ao finalizar o pedido. Por favor, tente novamente.")
+      console.error("Erro ao finalizar pedido:", {
+        error,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      })
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
+      alert(`Ocorreu um erro ao finalizar o pedido: ${errorMessage}. Por favor, tente novamente.`)
     } finally {
       setIsSubmitting(false)
     }
@@ -753,19 +755,6 @@ function CheckoutPageContent() {
                   </div>
                 </div>
 
-                <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                  <div>
-                    <label className="block text-sm font-medium text-purple-700 mb-1">
-                      Buscar Endereço
-                    </label>
-                    <DeliveryAddressLookup
-                      onAddressSelect={handleAddressSelect}
-                      onAddressClear={handleAddressClear}
-                    />
-
-                  </div>
-                </div>
-
                 <div>
                   <label htmlFor="city" className="block text-sm font-medium text-gray-700 mb-1">
                     Cidade
@@ -778,7 +767,7 @@ function CheckoutPageContent() {
                     onChange={handleChange}
                     required={!isTableOrder}
                     className="w-full px-3 py-3 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="Digite a cidade ou use a busca acima"
+                    placeholder="Digite a cidade"
                   />
                   {isMaringa && !selectedAddress && (
                     <p className="text-xs text-purple-600 mt-1">
@@ -919,7 +908,7 @@ function CheckoutPageContent() {
                     </div>
                   ) : null}
 
-                  {/* Exibir informação de colher apenas quando necessário */}
+                  {/* Exibir informação de colher */}
                   {item.needsSpoon === true && (
                     <div className="ml-4 mt-2 bg-green-50 border-green-400 border-l-4 p-2 rounded-r-md">
                       <div className="flex items-start">
@@ -931,6 +920,18 @@ function CheckoutPageContent() {
                                 `Sim (${item.spoonQuantity} colheres)` :
                                 'Sim (1 colher)'
                             }
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {item.needsSpoon === false && (
+                    <div className="ml-4 mt-2 bg-red-50 border-red-400 border-l-4 p-2 rounded-r-md">
+                      <div className="flex items-start">
+                        <span className="inline-block w-2.5 h-2.5 bg-gradient-to-r from-red-400 to-red-600 rounded-full mr-1.5 mt-1 flex-shrink-0"></span>
+                        <div className="text-sm">
+                          <span className="font-semibold text-red-800">
+                            Não precisa de colher
                           </span>
                         </div>
                       </div>
@@ -1005,8 +1006,8 @@ function CheckoutPageContent() {
                   Processando...
                 </>
               ) : storeStatus.isOpen ? (
-                formData.paymentMethod === "pix" ? "Pix na Entrega" :
-                    formData.paymentMethod === "card" ? "Cartão na Entrega" :
+                formData.paymentMethod === "pix" ? (isTableOrder ? "Pix" : "Pix na Entrega") :
+                    formData.paymentMethod === "card" ? (isTableOrder ? "Cartão" : "Cartão na Entrega") :
                       formData.paymentMethod === "money" ? "Pagar em Dinheiro" :
                         "Finalizar e Enviar Pedido"
               ) : (

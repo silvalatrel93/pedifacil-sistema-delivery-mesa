@@ -1,5 +1,23 @@
 import { createSupabaseClient, withRetry } from "../supabase-client"
+import { createClient } from '@supabase/supabase-js'
 import type { Phrase } from "../types"
+
+// Função para criar cliente administrativo do Supabase
+function createAdminSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const serviceRoleKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''
+  
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Variáveis de ambiente do Supabase não configuradas para admin')
+  }
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
 
 // Serviço para gerenciar frases
 export const PhraseService = {
@@ -73,7 +91,7 @@ export const PhraseService = {
 
   // Salvar frase
   async savePhrase(phrase: Phrase): Promise<Phrase | null> {
-    const supabase = createSupabaseClient()
+    const supabase = createAdminSupabaseClient()
 
     try {
       // Remover o ID se for 0 para permitir que o Supabase gere um novo ID
@@ -122,7 +140,7 @@ export const PhraseService = {
 
   // Excluir frase
   async deletePhrase(id: number): Promise<boolean> {
-    const supabase = createSupabaseClient()
+    const supabase = createAdminSupabaseClient()
     const { error } = await supabase.from("phrases").delete().eq("id", id)
 
     if (error) {

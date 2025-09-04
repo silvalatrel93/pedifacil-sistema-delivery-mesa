@@ -592,18 +592,7 @@ export default function AdminPage() {
             </div>
           </Link>
 
-          <Link
-            href="/admin/enderecos"
-            className="bg-white rounded-xl shadow-sm hover:shadow-md p-4 sm:p-5 flex items-center hover:bg-purple-50 transition-all duration-300 hover:translate-y-[-2px] group border border-transparent hover:border-purple-200"
-          >
-            <div className="bg-purple-100 p-3 rounded-full mr-4 transition-all duration-300 group-hover:scale-110">
-              <MapPin size={22} className="text-purple-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-purple-600 mb-0.5">Endereços de Entrega</h2>
-              <p className="text-sm text-gray-600">Gerenciar endereços e taxas de entrega</p>
-            </div>
-          </Link>
+
 
           <Link
             href="/admin/relatorios"

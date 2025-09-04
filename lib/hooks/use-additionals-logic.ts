@@ -34,7 +34,8 @@ export function useAdditionalsLogic(product?: Product) {
     maxAdditionalsPerSize,
     setMaxAdditionalsPerSize,
     updateSizeLimits,
-    FREE_ADDITIONALS_LIMIT
+    FREE_ADDITIONALS_LIMIT,
+    bulkSelectAdditionals
   } = useAdditionals()
 
   // Estado local para gerenciar erros de carregamento
@@ -236,6 +237,7 @@ export function useAdditionalsLogic(product?: Product) {
     resetAdditionalsBySize,
     loadAdditionalsData,
     isAdditionalSelected,
+    bulkSelectAdditionals,
 
     // Constantes
     maxAdditionalsPerSize,

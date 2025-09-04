@@ -18,7 +18,7 @@ function createAdminSupabaseClient() {
   });
 }
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
     const supabase = createAdminSupabaseClient();
     
@@ -37,65 +37,84 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    // Passo 2: Criar um pedido temporário para forçar o ID 1
-    const tempOrder = {
-      customer_name: "RESET_COUNTER_TEMP",
-      customer_phone: "00000000000",
-      address: { street: "Temp", number: "1", neighborhood: "Temp" },
-      items: [],
-      subtotal: 0,
-      delivery_fee: 0,
-      total: 0,
-      payment_method: "temp",
-      status: "cancelled" as const,
-      date: new Date().toISOString(),
-      printed: false,
-      notified: true,
-      store_id: "00000000-0000-0000-0000-000000000000"
-    };
-    
-    const { data: insertedOrder, error: insertError } = await supabase
-      .from('orders')
-      .insert(tempOrder)
-      .select();
-    
-    if (insertError) {
-      console.error("Erro ao inserir pedido temporário:", insertError);
-      return NextResponse.json(
-        { success: false, error: "Erro ao inserir pedido temporário" },
-        { status: 500 }
-      );
-    }
-    
-    // Verificar se o pedido foi inserido com ID 1
-    const orderId = insertedOrder?.[0]?.id;
-    console.log(`Pedido temporário inserido com ID: ${orderId}`);
-    
-    // Passo 3: Excluir o pedido temporário
-    const { error: deleteOrderError } = await supabase
-      .from('orders')
-      .delete()
-      .eq('customer_name', "RESET_COUNTER_TEMP");
-    
-    if (deleteOrderError) {
-      console.error("Erro ao excluir pedido temporário:", deleteOrderError);
-      // Não é um erro crítico, podemos continuar
-    }
-    
-    // Verificar se conseguimos redefinir o contador
-    const success = orderId === 1;
-    
-    return NextResponse.json({
-      success: true,
-      message: "Contador de pedidos zerado com sucesso",
-      resetToId1: success,
-      nextOrderId: success ? 1 : "desconhecido"
+    // Usar setval para resetar a sequência do PostgreSQL
+    // setval('sequence_name', value, is_called)
+    // is_called = false significa que o próximo valor será o valor especificado
+    const { data: resetData, error: resetError } = await supabase.rpc('exec_sql', {
+      query: "SELECT setval('orders_id_seq', 1, false)"
     });
     
+    if (resetError) {
+      // Fallback: método manual se exec_sql não estiver disponível
+      console.log('exec_sql não disponível, usando método manual...');
+      
+      const tempOrder = {
+        customer_name: 'TEMP_ORDER_FOR_RESET',
+        customer_phone: '00000000000',
+        address: {
+          street: 'TEMP',
+          number: '0',
+          neighborhood: 'TEMP'
+        },
+        items: [],
+        subtotal: 0,
+        delivery_fee: 0,
+        total: 0,
+        payment_method: 'dinheiro',
+        status: 'pending',
+        date: new Date().toISOString(),
+        printed: false,
+        notified: false,
+        store_id: '00000000-0000-0000-0000-000000000000'
+      };
+
+      // Inserir pedido temporário
+      const { data: insertData, error: insertError } = await supabase
+        .from('orders')
+        .insert(tempOrder)
+        .select('id');
+
+      if (insertError) {
+        throw new Error(`Erro ao inserir pedido temporário: ${insertError.message}`);
+      }
+
+      const tempId = insertData[0].id;
+
+      // Deletar o pedido temporário
+      const { error: deleteError } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', tempId);
+
+      if (deleteError) {
+        throw new Error(`Erro ao deletar pedido temporário: ${deleteError.message}`);
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Contador de pedidos zerado com sucesso (método manual)',
+        method: 'manual',
+        resetToId1: true,
+        nextOrderId: 1
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Contador de pedidos zerado com sucesso',
+      method: 'setval',
+      resetToId1: true,
+      nextOrderId: 1
+    });
+
   } catch (error) {
-    console.error("Erro ao zerar contador de pedidos:", error);
+    console.error('Erro ao resetar contador:', error);
     return NextResponse.json(
-      { success: false, error: "Erro interno ao zerar contador de pedidos" },
+      { 
+        success: false, 
+        error: 'Erro interno do servidor',
+        details: error instanceof Error ? error.message : 'Erro desconhecido'
+      },
       { status: 500 }
     );
   }

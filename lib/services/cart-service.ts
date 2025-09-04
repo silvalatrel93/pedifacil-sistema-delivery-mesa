@@ -1,8 +1,23 @@
 import { createSupabaseClient } from "../supabase-client"
+import { createClient } from "@supabase/supabase-js"
 import type { CartItem } from "../types"
+import type { Database } from "../database.types"
 import { v4 as uuidv4 } from "uuid"
 import { cleanSizeDisplay } from "@/lib/utils"
 import { DEFAULT_STORE_ID } from "../constants"
+
+// Função para criar cliente administrativo do Supabase
+function createAdminSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+  
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
 
 // Função para obter o ID da sessão do carrinho
 export function getCartSessionId(): string {
@@ -80,23 +95,21 @@ export async function getCartItems(): Promise<CartItem[]> {
   return data.map((item: any): CartItem => {
     // Criar uma cópia do item com o tamanho modificado para exibição
     const displayItem: CartItem = {
-      id: Number(item.id),
+      id: String(item.id),
       productId: Number(item.product_id),
-      name: String(item.name),
-      price: Number(item.price),
+      name: String(item.name || ""),
+      price: Number(item.size_price || item.price || 0), // Usar size_price se disponível
       quantity: Number(item.quantity),
       image: String(item.image || ""),
       // Armazenar o tamanho original para uso interno
-      originalSize: String(item.size),
+      originalSize: String(item.size_name || item.size || ""),
       // Limpar o tamanho para exibição
-      size: cleanSizeDisplay(String(item.size)),
+      size: cleanSizeDisplay(String(item.size_name || item.size || "")),
       additionals: Array.isArray(item.additionals) ? item.additionals : [],
       // Incluir informação sobre colheres
       needsSpoon: Boolean(item.needs_spoon),
       spoonQuantity: typeof item.spoon_quantity === 'number' ? item.spoon_quantity : undefined,
-
-      // Incluir observações do cliente (se a coluna existir)
-      notes: String(item.notes || ""),
+      notes: item.notes || "",
     }
 
     return displayItem
@@ -212,9 +225,9 @@ export async function addToCart(item: Omit<CartItem, "id">): Promise<CartItem | 
 
     // Verificar se existe um item com os mesmos adicionais, tamanho e escolha de colher
     // Ignoramos os sufixos únicos que podem ter sido adicionados ao tamanho
-    const matchingItem = existingItems?.find((existingItem: any) => {
+    const matchingItem = existingItems && existingItems.length > 0 ? existingItems.find((existingItem: any) => {
       // Verificar se o tamanho base (sem o sufixo único) é o mesmo
-      const existingSizeBase = String(existingItem.size).split('#')[0]
+      const existingSizeBase = String(existingItem.size_name || existingItem.size).split('#')[0]
       const newSizeBase = String(item.size).split('#')[0]
       const isSameSizeBase = existingSizeBase === newSizeBase
 
@@ -225,20 +238,21 @@ export async function addToCart(item: Omit<CartItem, "id">): Promise<CartItem | 
 
       // O item é considerado o mesmo se tamanho base e adicionais forem iguais
       return isSameSizeBase && areAdditionalsEquivalent
-    })
+    }) : null
 
     if (matchingItem) {
       // Item encontrado no carrinho, atualizando quantidade
 
       // Item com mesmos adicionais existe, atualizar quantidade
+      const updatePayload: Database['public']['Tables']['cart']['Update'] = {
+        quantity: Number((matchingItem as any).quantity) + Number(item.quantity),
+        // Garantir que store_id esteja presente mesmo em atualizações
+        store_id: storeId,
+      }
       const { data, error: updateError } = await supabase
         .from("cart")
-        .update({
-          quantity: Number(matchingItem.quantity) + item.quantity,
-          // Garantir que store_id esteja presente mesmo em atualizações
-          store_id: storeId,
-        })
-        .eq("id", Number(matchingItem.id))
+        .update(updatePayload as any)
+        .eq("id", Number((matchingItem as any).id))
         .select()
         .single()
 
@@ -249,16 +263,18 @@ export async function addToCart(item: Omit<CartItem, "id">): Promise<CartItem | 
 
       const typedData = data as any
       return {
-        id: Number(typedData.id),
+        id: String(typedData.id),
         productId: Number(typedData.product_id),
-        name: String(typedData.name),
-        price: Number(typedData.price),
+        name: String(item.name || ""), // Usar valor original do item
+        price: Number(typedData.size_price || item.price || 0),
         quantity: Number(typedData.quantity),
-        image: String(typedData.image || ""),
-        size: cleanSizeDisplay(String(typedData.size)), // Limpar o tamanho para exibição
+        image: String(item.image || ""), // Usar valor original do item
+        size: cleanSizeDisplay(String(typedData.size_name || item.size)),
+        originalSize: String(typedData.size_name || item.size),
         additionals: Array.isArray(typedData.additionals) ? typedData.additionals : [],
-
-        notes: String(typedData.notes || ""), // Incluir observações do cliente
+        notes: item.notes || "", // Buscar notes do item se existir
+        needsSpoon: Boolean(item.needsSpoon), // Manter valor original do frontend
+        spoonQuantity: item.spoonQuantity || undefined, // Manter valor original do frontend
       }
     } else {
       // Não encontramos um item com os mesmos adicionais
@@ -299,26 +315,23 @@ export async function addToCart(item: Omit<CartItem, "id">): Promise<CartItem | 
         session_id: sessionId,
         store_id: storeId,
         product_id: Number(item.productId),
-        name: String(item.name) || '',
-        price: Number(item.price) || 0,
+        name: String(item.name || ""), // Campo obrigatório
+        price: Number(item.price) || 0, // Campo obrigatório
+        image: String(item.image || ""),
+        size: uniqueSize, // Campo size original
+        size_name: uniqueSize, // Usar o tamanho único gerado com sufixo garantido
+        size_price: Number(item.price) || 0,
         quantity: Number(item.quantity) || 1,
-        image: item.image || null,
-        size: uniqueSize, // Usar o tamanho único gerado com sufixo garantido
         additionals: Array.isArray(item.additionals) ? item.additionals : [],
-      }
-
-      // Incluir notes apenas se a propriedade existir no item (para compatibilidade)
-      if (item.notes !== undefined) {
-        insertData.notes = String(item.notes) || ""
       }
 
       // Incluir campos de colher se existirem no item
       if (item.needsSpoon !== undefined) {
-        insertData.needs_spoon = Boolean(item.needsSpoon)
+        insertData.needs_spoon = Boolean(item.needsSpoon);
       }
-      
+
       if (item.spoonQuantity !== undefined) {
-        insertData.spoon_quantity = Number(item.spoonQuantity) || 1
+        insertData.spoon_quantity = Number(item.spoonQuantity) || 1;
       }
 
 
@@ -334,76 +347,33 @@ export async function addToCart(item: Omit<CartItem, "id">): Promise<CartItem | 
 
 
       if (insertError) {
-        // Se o erro for sobre colunas inexistentes, tenta sem essas colunas
-        const missingColumns = []
-        
-        if (insertError.message?.includes('column "notes" of relation "cart" does not exist')) {
-          missingColumns.push('notes')
-        }
-        if (insertError.message?.includes('column "needs_spoon" of relation "cart" does not exist')) {
-          missingColumns.push('needs_spoon')
-        }
-        if (insertError.message?.includes('column "spoon_quantity" of relation "cart" does not exist')) {
-          missingColumns.push('spoon_quantity')
-        }
-        
-        if (missingColumns.length > 0) {
-          console.warn(`Colunas não encontradas na tabela cart: ${missingColumns.join(', ')}. Inserindo sem essas colunas...`)
-          
-          // Remover colunas inexistentes
-          const { notes, needs_spoon, spoon_quantity, ...cleanInsertData } = insertData
-
-          const { data: retryData, error: retryError } = await supabase
-            .from("cart")
-            .insert(cleanInsertData)
-            .select()
-            .single()
-
-          if (retryError) {
-            console.error("Erro na segunda tentativa:", retryError)
-            return null
-          }
-
-          // Usar os dados da segunda tentativa
-          const typedRetryData = retryData as any
-          return {
-            id: Number(typedRetryData.id),
-            productId: Number(typedRetryData.product_id),
-            name: String(typedRetryData.name),
-            price: Number(typedRetryData.price),
-            quantity: Number(typedRetryData.quantity),
-            image: String(typedRetryData.image || ""),
-            size: cleanSizeDisplay(String(originalSize)),
-            originalSize: String(typedRetryData.size),
-            additionals: Array.isArray(typedRetryData.additionals) ? typedRetryData.additionals : [],
-            notes: "", // Usar string vazia se a coluna não existir
-            needsSpoon: Boolean(item.needsSpoon), // Manter valor original do frontend
-            spoonQuantity: item.spoonQuantity || undefined, // Manter valor original do frontend
-          }
-        }
-
-        // Para outros erros de inserção, logar normalmente  
-        console.error("Erro ao adicionar item ao carrinho:", insertError.message)
-        return null
+        console.error("Erro ao inserir no carrinho:", insertError)
+        throw new Error(`Erro ao adicionar item ao carrinho: ${insertError.message}`)
       }
 
-      const typedInsertData = data as any
+      // Usar os dados inseridos
+      const typedData = data as any
       return {
-        id: Number(typedInsertData.id),
-        productId: Number(typedInsertData.product_id),
-        name: String(typedInsertData.name),
-        price: Number(typedInsertData.price),
-        quantity: Number(typedInsertData.quantity),
-        image: String(typedInsertData.image || ""),
-        size: cleanSizeDisplay(String(originalSize)), // Mostrar o tamanho original para o usuário
-        originalSize: String(typedInsertData.size), // Manter o tamanho com sufixo internamente
-        additionals: Array.isArray(typedInsertData.additionals) ? typedInsertData.additionals : [],
-        notes: String(typedInsertData.notes || ""), // Incluir observações do cliente
+        id: String(typedData.id),
+        productId: Number(typedData.product_id),
+        name: String(item.name || ""), // Usar valor original do item
+        price: Number(typedData.size_price || item.price || 0),
+        quantity: Number(typedData.quantity),
+        image: String(item.image || ""), // Usar valor original do item
+        size: cleanSizeDisplay(String(typedData.size_name || originalSize)),
+        originalSize: String(typedData.size_name || originalSize),
+        additionals: Array.isArray(typedData.additionals) ? typedData.additionals : [],
+        notes: item.notes || "", // Buscar notes do item se existir
+        needsSpoon: Boolean(item.needsSpoon), // Manter valor original do frontend
+        spoonQuantity: item.spoonQuantity || undefined, // Manter valor original do frontend
       }
     }
   } catch (error) {
     console.error("Erro ao adicionar item ao carrinho:", error)
-    return null
+    if (error instanceof Error) {
+      throw error
+    }
+    throw new Error(`Erro inesperado ao adicionar item ao carrinho: ${String(error)}`)
   }
 }
 
@@ -411,9 +381,9 @@ export async function addToCart(item: Omit<CartItem, "id">): Promise<CartItem | 
 export const addCartItem = addToCart
 
 // Função para atualizar quantidade de um item e outros campos opcionais
-export async function updateCartItemQuantity(id: number, quantity: number, updatedFields?: Partial<CartItem>): Promise<boolean> {
-  // Verificar se id é um número válido
-  if (isNaN(Number(id))) {
+export async function updateCartItemQuantity(id: string, quantity: number, updatedFields?: Partial<CartItem>): Promise<boolean> {
+  // Verificar se id é uma string válida
+  if (!id || id.trim() === '') {
     console.error(`Erro: ID inválido ao atualizar quantidade: ${id}`)
     return false
   }
@@ -422,62 +392,30 @@ export async function updateCartItemQuantity(id: number, quantity: number, updat
   const storeId = getCurrentStoreId()
 
   // Criar objeto de atualização com os campos básicos
-  const updateData: any = {
+  const updateData: Database['public']['Tables']['cart']['Update'] = {
     quantity,
     store_id: storeId, // Garantir que store_id esteja presente mesmo em atualizações
   }
 
-  // Adicionar campos adicionais se fornecidos
-  if (updatedFields) {
-    // Adicionar apenas campos permitidos para atualização
-    if (updatedFields.notes !== undefined) {
-      updateData.notes = updatedFields.notes
-    }
-    if (updatedFields.needsSpoon !== undefined) {
-      updateData.needs_spoon = updatedFields.needsSpoon
-    }
-    if (updatedFields.spoonQuantity !== undefined) {
-      updateData.spoon_quantity = updatedFields.spoonQuantity
-    }
+  // Incluir campos de colher se fornecidos
+  if (updatedFields?.needsSpoon !== undefined) {
+    (updateData as any).needs_spoon = updatedFields.needsSpoon;
+  }
+  if (updatedFields?.spoonQuantity !== undefined) {
+    updateData.spoon_quantity = updatedFields.spoonQuantity;
+  }
+  
+  // Incluir campo notes se fornecido
+  if (updatedFields?.notes !== undefined) {
+    (updateData as any).notes = updatedFields.notes;
   }
 
   const { error } = await supabase
     .from("cart")
-    .update(updateData)
+    .update(updateData as Database['public']['Tables']['cart']['Update'])
     .eq("id", id)
 
   if (error) {
-    // Se o erro for sobre colunas inexistentes, tenta sem essas colunas
-    const missingColumns = []
-    
-    if (error.message?.includes('column "notes" of relation "cart" does not exist')) {
-      missingColumns.push('notes')
-    }
-    if (error.message?.includes('column "needs_spoon" of relation "cart" does not exist')) {
-      missingColumns.push('needs_spoon')
-    }
-    if (error.message?.includes('column "spoon_quantity" of relation "cart" does not exist')) {
-      missingColumns.push('spoon_quantity')
-    }
-    
-    if (missingColumns.length > 0) {
-      console.warn(`Colunas não encontradas na tabela cart: ${missingColumns.join(', ')}. Atualizando sem essas colunas...`)
-      
-      // Remover colunas inexistentes
-      const { notes, needs_spoon, spoon_quantity, ...cleanUpdateData } = updateData
-
-      const { error: retryError } = await supabase
-        .from("cart")
-        .update(cleanUpdateData)
-        .eq("id", id)
-
-      if (retryError) {
-        console.error(`Erro na segunda tentativa ao atualizar item ${id}:`, retryError)
-        return false
-      }
-
-      return true
-    }
 
     // Para outros erros, logar normalmente
     console.error(`Erro ao atualizar item ${id}:`, error.message)
@@ -488,7 +426,11 @@ export async function updateCartItemQuantity(id: number, quantity: number, updat
 }
 
 // Função para remover item do carrinho
-export async function removeFromCart(id: number): Promise<boolean> {
+export async function removeFromCart(id: string): Promise<boolean> {
+  if (!id || id.trim() === '') {
+    console.error("Tentativa de remover item com ID inválido (vazio) na função de serviço.")
+    return false
+  }
   const supabase = createSupabaseClient()
 
   const { error } = await supabase.from("cart").delete().eq("id", id)

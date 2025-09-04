@@ -20,7 +20,7 @@ export const TableService = {
         id: Number(table.id),
         number: Number(table.number),
         name: String(table.name),
-        active: Boolean(table.active),
+        active: Boolean(table.is_active),
         qrCode: String(table.qr_code),
         createdAt: new Date(String(table.created_at)),
         updatedAt: new Date(String(table.updated_at)),
@@ -50,7 +50,7 @@ export const TableService = {
         id: Number(table.id),
         number: Number(table.number),
         name: String(table.name),
-        active: Boolean(table.active),
+        active: Boolean(table.is_active),
         qrCode: String(table.qr_code),
         createdAt: new Date(String(table.created_at)),
         updatedAt: new Date(String(table.updated_at)),
@@ -84,7 +84,7 @@ export const TableService = {
         id: Number(data.id),
         number: Number(data.number),
         name: String(data.name),
-        active: Boolean(data.active),
+        active: Boolean(data.is_active),
         qrCode: String(data.qr_code),
         createdAt: new Date(String(data.created_at)),
         updatedAt: new Date(String(data.updated_at)),
@@ -103,7 +103,7 @@ export const TableService = {
         .from("tables")
         .select("*")
         .eq("number", number)
-        .eq("active", true)
+        .eq("is_active", true)
         .single()
 
       if (error) {
@@ -119,7 +119,7 @@ export const TableService = {
         id: Number(data.id),
         number: Number(data.number),
         name: String(data.name),
-        active: Boolean(data.active),
+        active: Boolean(data.is_active),
         qrCode: String(data.qr_code),
         createdAt: new Date(String(data.created_at)),
         updatedAt: new Date(String(data.updated_at)),
@@ -143,7 +143,7 @@ export const TableService = {
         .insert({
           number: tableData.number,
           name: tableData.name,
-          active: tableData.active,
+          is_active: tableData.active,
           qr_code: qrCode,
         })
         .select()
@@ -158,7 +158,7 @@ export const TableService = {
         id: Number(data.id),
         number: Number(data.number),
         name: String(data.name),
-        active: Boolean(data.active),
+        active: Boolean(data.is_active),
         qrCode: String(data.qr_code),
         createdAt: new Date(String(data.created_at)),
         updatedAt: new Date(String(data.updated_at)),
@@ -179,14 +179,20 @@ export const TableService = {
       const updateData: any = {}
       if (tableData.number !== undefined) updateData.number = tableData.number
       if (tableData.name !== undefined) updateData.name = tableData.name
-      if (tableData.active !== undefined) updateData.active = tableData.active
+      if (tableData.active !== undefined) updateData.is_active = tableData.active
 
+      console.log('🔧 Dados sendo enviados para o banco:', updateData)
+      console.log('🔧 ID da mesa sendo atualizada:', id)
+      
       const { data, error } = await supabase
         .from("tables")
         .update(updateData)
         .eq("id", id)
         .select()
         .single()
+
+      console.log('🔧 Dados retornados do banco:', data)
+      console.log('🔧 Erro do Supabase (se houver):', error)
 
       if (error) {
         console.error("Erro ao atualizar mesa:", error)
@@ -197,7 +203,7 @@ export const TableService = {
         id: Number(data.id),
         number: Number(data.number),
         name: String(data.name),
-        active: Boolean(data.active),
+        active: Boolean(data.is_active),
         qrCode: String(data.qr_code),
         createdAt: new Date(String(data.created_at)),
         updatedAt: new Date(String(data.updated_at)),
@@ -278,7 +284,7 @@ export const TableService = {
         id: Number(data.id),
         number: Number(data.number),
         name: String(data.name),
-        active: Boolean(data.active),
+        active: Boolean(data.is_active),
         qrCode: String(data.qr_code),
         createdAt: new Date(String(data.created_at)),
         updatedAt: new Date(String(data.updated_at)),

@@ -1442,6 +1442,18 @@ export default function PedidosMesaPage() {
                             </div>
                           </div>
                         )}
+                        {item.needsSpoon === false && (
+                          <div className="mt-2 bg-red-50 border-red-400 border-l-4 p-2 rounded-r-md">
+                            <div className="flex items-start">
+                              <span className="inline-block w-2.5 h-2.5 bg-gradient-to-r from-red-400 to-red-600 rounded-full mr-1.5 mt-0.5 flex-shrink-0"></span>
+                              <div className="text-sm">
+                                <span className="font-semibold text-red-800">
+                                  Não precisa de colher
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Observações do cliente */}
                         {item.notes && item.notes.trim() !== "" && (
@@ -1470,9 +1482,6 @@ export default function PedidosMesaPage() {
 
                       <span className="text-gray-700 text-xs sm:text-sm">Subtotal:</span>
                       <span className="text-right font-medium text-xs sm:text-sm">{formatCurrency(selectedOrder.subtotal)}</span>
-
-                      <span className="text-gray-700 text-xs sm:text-sm">Taxa de entrega:</span>
-                      <span className="text-right font-medium text-green-600 text-xs sm:text-sm">R$ 0,00 (Mesa)</span>
 
                       {selectedOrder.paymentChange && parseFloat(selectedOrder.paymentChange) > 0 && (
                         <>

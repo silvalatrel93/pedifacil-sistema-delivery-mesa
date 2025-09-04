@@ -1,5 +1,23 @@
 import { createSupabaseClient } from "../supabase-client"
+import { createClient } from '@supabase/supabase-js'
 import type { Notification } from "../types"
+
+// Função para criar cliente administrativo do Supabase
+function createAdminSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const serviceRoleKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''
+  
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Variáveis de ambiente do Supabase não configuradas para admin')
+  }
+  
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
 
 export const NotificationService = {
   // Obter todas as notificações
@@ -113,7 +131,7 @@ export const NotificationService = {
   // Salvar notificação
   async saveNotification(notification: Notification): Promise<{ data: Notification | null; error: Error | null }> {
     try {
-      const supabase = createSupabaseClient()
+      const supabase = createAdminSupabaseClient()
 
       if (notification.id && notification.id > 0) {
         // Atualizar notificação existente
@@ -199,7 +217,7 @@ export const NotificationService = {
   // Marcar notificação como lida
   async markAsRead(id: number): Promise<boolean> {
     try {
-      const supabase = createSupabaseClient()
+      const supabase = createAdminSupabaseClient()
       const { error } = await supabase
         .from("notifications")
         .update({ read: true })
@@ -220,7 +238,7 @@ export const NotificationService = {
   // Excluir notificação
   async deleteNotification(id: number): Promise<boolean> {
     try {
-      const supabase = createSupabaseClient()
+      const supabase = createAdminSupabaseClient()
       const { error } = await supabase
         .from("notifications")
         .delete()

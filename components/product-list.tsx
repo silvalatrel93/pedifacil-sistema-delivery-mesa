@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react"
+import { useSearchParams } from "next/navigation"
 import { getVisibleProductsWithContext } from "@/lib/services/product-service"
 import { getActiveCategories } from "@/lib/services/category-service"
 import ProductCard from "@/components/product-card"
@@ -45,6 +46,7 @@ const abbreviateCategory = (name: string, isMobile: boolean): string => {
 };
 
 export default function ProductList({ products: _initialProducts = [], categories: initialCategories = [], storeColor = "#8B5CF6" }: ProductListProps) {
+  const searchParams = useSearchParams()
   const [allProducts, setAllProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>(initialCategories)
   const [selectedCategory, setSelectedCategory] = useState<number | null>(0)
@@ -183,6 +185,33 @@ export default function ProductList({ products: _initialProducts = [], categorie
 
     initializeData()
   }, [_initialProducts])
+
+  // Sincronizar categoria da URL (parametro 'categoria')
+  useEffect(() => {
+    const categoriaParam = searchParams?.get('categoria')
+    if (categoriaParam) {
+      const parsed = parseInt(categoriaParam, 10)
+      if (!isNaN(parsed)) {
+        setSelectedCategory(parsed)
+        setActiveCategory(parsed)
+      }
+    }
+  }, [searchParams])
+
+  // Se houver 'produto' na URL, mudar automaticamente para a categoria do produto
+  useEffect(() => {
+    const produtoParam = searchParams?.get('produto')
+    const openProductId = produtoParam ? parseInt(produtoParam, 10) : NaN
+    if (!isNaN(openProductId) && allProducts.length > 0) {
+      const target = allProducts.find(p => Number(p.id) === openProductId)
+      if (target && target.categoryId !== undefined && target.categoryId !== null) {
+        if (selectedCategory !== target.categoryId) {
+          setSelectedCategory(target.categoryId)
+          setActiveCategory(target.categoryId)
+        }
+      }
+    }
+  }, [searchParams, allProducts])
 
   // Atualizar produtos quando os props mudarem (importante para páginas de mesa)
   useEffect(() => {
@@ -377,14 +406,20 @@ export default function ProductList({ products: _initialProducts = [], categorie
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-              {categoryProducts.map((product, index) => (
-                <ProductCard
-                  key={createSafeKey(product.id, 'product')}
-                  product={product}
-                  priority={index < 2} // Prioridade para os primeiros 2 produtos por categoria 
-                  storeColor={storeColor}
-                />
-              ))}
+              {categoryProducts.map((product, index) => {
+                const produtoParam = searchParams?.get('produto')
+                const openProductId = produtoParam ? parseInt(produtoParam, 10) : NaN
+                const forceOpen = !isNaN(openProductId) && Number(product.id) === openProductId
+                return (
+                  <ProductCard
+                    key={createSafeKey(product.id, 'product')}
+                    product={product}
+                    priority={index < 2} // Prioridade para os primeiros 2 produtos por categoria 
+                    storeColor={storeColor}
+                    forceOpen={forceOpen}
+                  />
+                )
+              })}
             </div>
           </div>
         )
@@ -510,9 +545,14 @@ export default function ProductList({ products: _initialProducts = [], categorie
             ) : (
               // Exibição normal para categorias específicas
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-                {filteredProducts.map((product) => (
-                  <ProductCard key={createSafeKey(product.id, 'product')} product={product} storeColor={storeColor} />
-                ))}
+                {filteredProducts.map((product) => {
+                  const produtoParam = searchParams?.get('produto')
+                  const openProductId = produtoParam ? parseInt(produtoParam, 10) : NaN
+                  const forceOpen = !isNaN(openProductId) && Number(product.id) === openProductId
+                  return (
+                    <ProductCard key={createSafeKey(product.id, 'product')} product={product} storeColor={storeColor} forceOpen={forceOpen} />
+                  )
+                })}
               </div>
             )}
           </div>

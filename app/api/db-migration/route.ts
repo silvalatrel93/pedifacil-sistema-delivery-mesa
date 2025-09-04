@@ -12,7 +12,8 @@ export async function POST(request: Request) {
     const supabase = createSupabaseClient()
     
     // Executar SQL diretamente usando o cliente Supabase
-    const { data, error } = await supabase.rpc('exec_sql', { query: sql })
+    // Cast para any para evitar erro de tipagem quando a função RPC não está nos tipos gerados
+    const { data, error } = await (supabase as any).rpc('exec_sql', { query: sql })
     
     if (error) {
       console.error('Erro ao executar SQL:', error)

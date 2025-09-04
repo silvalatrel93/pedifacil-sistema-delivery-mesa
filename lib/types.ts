@@ -51,7 +51,7 @@ export interface Additional {
 
 // Item do carrinho
 export interface CartItem {
-  id: number
+  id: string
   productId: number
   name: string
   price: number // Preço base do produto (sem adicionais)

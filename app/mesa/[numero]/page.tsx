@@ -90,14 +90,28 @@ export default function MesaPage() {
 
         try {
           productsData = await getVisibleProductsForTable()
+          console.log(`📊 Mesa ${numeroMesa}: Carregados ${productsData.length} produtos`)
 
           // Aplicar preços da mesa quando disponíveis
           let produtosComPrecosMesa = 0
           
           productsData = productsData.map(product => {
+            console.log(`🔍 Produto: ${product.name}`, {
+              id: product.id,
+              tableSizes: product.tableSizes,
+              tableSizesType: typeof product.tableSizes,
+              tableSizesLength: product.tableSizes?.length,
+              sizes: product.sizes
+            })
+            console.log(`🔍 Raw tableSizes data:`, product.tableSizes)
+            
             // Verificar se o produto tem preços de mesa configurados
             if (product.tableSizes && Array.isArray(product.tableSizes) && product.tableSizes.length > 0) {
               produtosComPrecosMesa++
+              console.log(`✅ Aplicando preços de mesa para: ${product.name}`, {
+                precoDelivery: product.sizes,
+                precoMesa: product.tableSizes
+              })
               
               // Aplicar os preços de mesa substituindo os preços padrão
               return {
@@ -105,13 +119,12 @@ export default function MesaPage() {
                 sizes: product.tableSizes
               }
             } else {
+              console.log(`❌ Sem preços de mesa para: ${product.name}`)
               return product
             }
           })
 
-          if (produtosComPrecosMesa > 0) {
-            console.log(`🍽️ Mesa ${numeroMesa}: ${produtosComPrecosMesa} produtos com preços específicos aplicados`)
-          }
+          console.log(`🍽️ Mesa ${numeroMesa}: ${produtosComPrecosMesa} produtos com preços específicos aplicados`)
 
 
         } catch (e) {

@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Users, UserX } from "lucide-react"
-import { createSupabaseClient } from "@/lib/supabase-client"
 
 interface TableVisibilityToggleProps {
   productId: number
@@ -18,30 +17,37 @@ export function TableVisibilityToggle({
   const [isHiddenFromTable, setIsHiddenFromTable] = useState(initialHiddenFromTable)
   const [isLoading, setIsLoading] = useState(false)
   
+  // Sincronizar o estado local quando a prop mudar (evita "voltar" após re-render)
+  useEffect(() => {
+    setIsHiddenFromTable(initialHiddenFromTable)
+  }, [initialHiddenFromTable])
+  
   const handleToggleTableVisibility = async () => {
     if (isLoading) return
 
     setIsLoading(true)
     try {
-      const supabase = createSupabaseClient()
-      
       // Alternar o estado de visibilidade no sistema de mesa
       const newHiddenFromTableState = !isHiddenFromTable
-      const { error } = await supabase
-        .from("products")
-        .update({ active: !newHiddenFromTableState })
-        .eq("id", productId)
+      console.log(`🔄 Alterando visibilidade mesa produto ${productId}: ${isHiddenFromTable} → ${newHiddenFromTableState}`)
       
-      if (error) {
-        console.error(`Erro ao atualizar visibilidade em mesa do produto ${productId}:`, error)
+      const res = await fetch(`/api/admin/products/${productId}/toggle-table-visibility`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: newHiddenFromTableState })
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        console.error(`❌ Erro ao atualizar visibilidade em mesa do produto ${productId}:`, payload)
         alert("Erro ao alterar visibilidade do produto na mesa")
         return
       }
       
+      console.log(`✅ Visibilidade mesa produto ${productId} atualizada com sucesso`)
       setIsHiddenFromTable(newHiddenFromTableState)
-      if (onToggle) onToggle(newHiddenFromTableState)
+      onToggle?.(newHiddenFromTableState)
     } catch (error) {
-      console.error("Erro ao alternar visibilidade em mesa:", error)
+      console.error("❌ Erro ao alternar visibilidade em mesa:", error)
       alert("Erro ao alterar visibilidade do produto na mesa")
     } finally {
       setIsLoading(false)

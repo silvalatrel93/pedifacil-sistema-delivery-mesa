@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
-import { createSupabaseClient } from "@/lib/supabase-client"
 
 interface DeliveryVisibilityToggleProps {
   productId: number
@@ -22,16 +21,15 @@ export default function DeliveryVisibilityToggle({
 
     setIsLoading(true)
     try {
-      const supabase = createSupabaseClient()
       const newHiddenState = !isHidden
-
-      const { error } = await supabase
-        .from("products")
-        .update({ hidden_from_delivery: newHiddenState })
-        .eq("id", productId)
-
-      if (error) {
-        console.error("Erro ao alterar visibilidade do produto no delivery:", error)
+      const res = await fetch(`/api/admin/products/${productId}/toggle-delivery-visibility`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: newHiddenState })
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}))
+        console.error("Erro ao alterar visibilidade do produto no delivery:", payload)
         alert("Erro ao alterar visibilidade do produto no delivery")
         return
       }

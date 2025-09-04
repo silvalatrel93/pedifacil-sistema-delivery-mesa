@@ -36,12 +36,7 @@ export function AdditionalSummary({ storeColor = "#8B5CF6" }: AdditionalSummaryP
       className="mt-3 sm:mt-4 p-2 sm:p-3"
       style={{ backgroundColor: `${storeColor}0d` }}
     >
-      <h5 
-        className="font-medium text-sm sm:text-base mb-2 sm:mb-3"
-        style={{ color: `${storeColor}dd` }}
-      >
-        Resumo dos complementos premium selecionados
-      </h5>
+
       
       <div className="mb-3 sm:mb-4">
         <h6 
@@ -75,17 +70,7 @@ export function AdditionalSummary({ storeColor = "#8B5CF6" }: AdditionalSummaryP
           ))}
         </ul>
         
-        {(isFreeSize && reachedLimit) || (selectedAdditionalsCount >= maxAdditionalsPerSize) ? (
-          <p 
-            className="text-[9px] sm:text-xs mt-1 font-medium"
-            style={{ color: storeColor }}
-          >
-            {selectedAdditionalsCount >= maxAdditionalsPerSize 
-              ? `Você atingiu o limite de ${maxAdditionalsPerSize} adicionais para este tamanho.`
-              : `Você atingiu o limite de ${FREE_ADDITIONALS_LIMIT} complementos premium grátis para este tamanho.`
-            }
-          </p>
-        ) : null}
+
         
         {/* Limites por categoria */}
         {additionalsByCategory.some(({category}) => category.selectionLimit) && (

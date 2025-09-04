@@ -31,8 +31,8 @@ async function applyResetSequenceFunction() {
     console.log('Conteúdo SQL carregado, aplicando ao banco de dados...');
     
     // Executar o SQL no Supabase
-    const { error } = await supabase.rpc('pg_execute', { 
-      query: sqlContent 
+    const { error } = await supabase.rpc('exec_sql', { 
+      sql: sqlContent 
     });
     
     if (error) {
@@ -61,8 +61,8 @@ async function applyResetSequenceFunction() {
         $$;
       `;
       
-      const { error: resetError } = await supabase.rpc('pg_execute', { 
-        query: resetQuery 
+      const { error: altError } = await supabase.rpc('exec_sql', {
+        sql: resetQuery
       });
       
       if (resetError) {
